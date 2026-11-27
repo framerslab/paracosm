@@ -300,6 +300,19 @@ test('a blocked read, a 429 and offline each recover through one explicit retry'
   expect(reads).toBe(4);
 });
 
+test('closing after the layout changes returns focus to the shown leader\'s key', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 844 });
+  await openRun(page);
+  const cards = page.getByTestId('leaders').getByRole('article');
+  await readFrom(page, opener(cards.first()), 1);
+  await expect(dialog(page).getByRole('status')).toHaveText('Prompt loaded');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(cards).toHaveCount(0);
+  await close(page).click();
+  await expect(dialog(page)).toBeHidden();
+  await expect(opener(page.getByTestId('leaders').getByRole('tabpanel'))).toBeFocused();
+});
+
 test('a second tab can change the scenario and Reload replaces the stale leaders', async ({ context, page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await openRun(page);

@@ -84,7 +84,7 @@ export function firstCommanderTurn(calls: readonly WireCall[], orderMarker: stri
   );
   assert.ok(bootstrap, 'the first commander bootstrap reached the provider');
   const decision = completions.find(call =>
-    call.system.includes(orderMarker) && /^TURN 1,/.test(call.lastUser) && call.lastUser.includes('YOUR DECISION RULE'),
+    call.system.includes(orderMarker) && /^TURN 1(,| \(Event 1\/\d+\),)/.test(call.lastUser) && call.lastUser.includes('YOUR DECISION RULE'),
   );
   assert.ok(decision, 'the first commander decision reached the provider');
   return { bootstrap, decision };

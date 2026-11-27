@@ -440,8 +440,10 @@ test('only opening the written prompt counts, including after switching the phon
     const openPrompt = () => leaders(page).getByRole('button', { name: 'See the full prompt', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: /'s full prompt$/ });
     await openPrompt();
+    const again = dialog.getByRole('button', { name: 'Try again', exact: true });
+    await expect(again).toBeVisible();
     fail = false;
-    await dialog.getByRole('button', { name: 'Try again', exact: true }).click();
+    await again.click();
     await expect(dialog.getByRole('status')).toHaveText('Prompt loaded');
     await expect(dialog).toHaveAttribute('data-clarity-mask', 'True');
     await dialog.getByRole('button', { name: '2. Opening message', exact: true }).click();
