@@ -1064,6 +1064,30 @@ async function generateLeaders(keys: Record<string, string>, maxSimsPerDay = 1):
   }
 }
 
+test("Quickstart actor generation answers key_refused when the provider refuses the visitor's key, with none of the provider's words", async () => {
+  const restore = setHostKeys({ OPENAI_API_KEY: HOST_OPENAI_KEY, ANTHROPIC_API_KEY: HOST_ANTHROPIC_KEY });
+  const refusal = 'Incorrect API key provided: provider-refusal-marker.';
+  try {
+    await withProviderWire(async calls => {
+      await hosted(async api => {
+        const res = await api.cookied().post('/api/quickstart/generate-actors', { scenarioId: mars.id, count: 24, apiKey: VISITOR_OPENAI_KEY });
+        const text = await res.text();
+        assert.equal(res.status, 401, text);
+        assert.equal((JSON.parse(text) as { error?: string }).error, 'key_refused');
+        assert.ok(!text.includes('provider-refusal-marker'), text);
+        const made = modelCalls(calls);
+        assert.ok(made.length > 0, 'the actor call was made');
+        for (const call of made) assert.equal(call.key, VISITOR_OPENAI_KEY, `${call.path}: only the visitor's key was tried`);
+      });
+    }, () => new Response(JSON.stringify({ error: { message: refusal, type: 'invalid_request_error', param: null, code: 'invalid_api_key' } }), {
+      status: 401,
+      headers: { 'content-type': 'application/json' },
+    }));
+  } finally {
+    restore();
+  }
+});
+
 test("Quickstart actor generation with the visitor's own key on the hosted demo writes every leader it asks for on that key", async () => {
   const { leaders, calls } = await generateLeaders({ apiKey: VISITOR_OPENAI_KEY });
   assert.equal(leaders.length, 24, 'the 24 leaders asked for: the two-leader cap holds a host-paid request only');
