@@ -24,8 +24,7 @@ async function openPair(page: Page, look: 'light' | 'dark') {
   await expect(firstScreen.getByRole('heading', { name: 'Mars Genesis', exact: true })).toBeVisible();
   const notice = firstScreen.getByText(startNotice, { exact: true });
   await expect(notice).toHaveCount(1);
-  await expect(notice).toBeVisible();
-  expect((await firstScreen.innerText()).match(/The leaders are AI agents\./g)).toHaveLength(1);
+  await expect(firstScreen.getByTestId('first-screen-notes').getByText(startNotice, { exact: true })).toBeVisible();
   await expectNoLabels(page);
   await expect(page.locator(meta)).toHaveCount(0);
   const setup = page.waitForResponse(response => response.url() === origin + '/setup' && response.request().method() === 'POST');

@@ -291,7 +291,8 @@ test.describe('feature 1 on the run\'s record', () => {
       await test.step(`${size.width} in the ${look} look`, async () => {
         await openPairSim(page, request, size, look);
 
-        // A tool the record marks approved: five filled stations, each closed to its one line.
+        // A tool the record marks approved: Request starts closed and keeps its mark when opened.
+        await forgetOpenStations(page);
         await pressInspect(inspectKey(page, LANDING));
         const passed = traceOf(page, LANDING, 1);
         await expect(passed.getByText('Passed. The judge approved it.', { exact: true })).toBeVisible();
@@ -302,11 +303,19 @@ test.describe('feature 1 on the run\'s record', () => {
         // Judge, the station that decided a passed tool, opens with the trace: the confidence shows open or closed.
         await expect(passed.locator('[data-station="judge"]')).toContainText('0.98 out of 1');
         await expect(passed.locator('[data-station="added"]')).toContainText('Used 1 time');
+        const requestKey = passed.getByRole('button', { name: 'Request: reached', exact: true });
         const description = passed.locator('[data-station="request"]').getByText(LANDING_TEXT, { exact: true });
+        await expect(requestKey).toHaveAttribute('aria-expanded', 'false');
+        await expect(description).toBeVisible();
         await expect(description).toHaveAttribute('data-ai-generated', 'true');
         expect(await passed.innerText()).not.toContain('Written by an AI model during this paracosm run');
         await expect(passed.getByText('The reason the run recorded')).toHaveCount(0);
         await picture(page, `${size.width}-${look}-f1-passed`);
+        await requestKey.click();
+        await expect(requestKey).toHaveAttribute('aria-expanded', 'true');
+        await expect(description).toBeVisible();
+        await expect(description).toHaveAttribute('data-ai-generated', 'true');
+        await requestKey.click();
         await passed.getByRole('button', { name: 'Close the trace' }).click();
         await expect(passed).toBeHidden();
 
