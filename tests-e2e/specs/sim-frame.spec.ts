@@ -1092,10 +1092,10 @@ test('legal L8: the run screen’s event label reads 4.5 to 1', async ({ page })
         await page.emulateMedia({ colorScheme: look });
         await page.goto(new URL(href!, page.url()).href);
         await expect(replayStatus(page)).toBeVisible();
-        const chips = page.locator('[class*="compactCrisis"], [class*="chipCrisis"]');
-        await expect(chips.first()).toBeVisible();
-        for (const chip of await chips.all()) {
-          const words = await measureText(page, chip);
+        const labels = page.getByTestId('watch-crisis-kind').filter({ visible: true });
+        await expect(labels.first()).toBeVisible();
+        for (const label of await labels.all()) {
+          const words = await measureText(page, label);
           expect(words.length).toBeGreaterThan(0);
           for (const word of words) expect(word.ratio, word.selector).toBeGreaterThanOrEqual(4.5);
         }

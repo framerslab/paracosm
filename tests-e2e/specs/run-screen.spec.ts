@@ -26,9 +26,15 @@ async function openPair(browser: Browser, origin: string, width: number, look: s
   await pressStart(page);
   const response = await accepted;
   expect(response.ok()).toBe(true);
-  const { runKey } = await response.json() as { runKey: string };
-  expect(runKey).toBeTruthy();
   await expect(page).toHaveURL(/[?&]tab=sim\b/);
+  let runKey = '';
+  await expect.poll(async () => {
+    const current = await page.request.get('/results');
+    if (!current.ok()) return false;
+    const run = await current.json() as { runKey?: string };
+    runKey = run.runKey ?? '';
+    return Boolean(runKey);
+  }).toBe(true);
   return { page, context, runKey };
 }
 
@@ -164,6 +170,8 @@ test('one turn compares the two decisions while they arrive', async ({ browser }
 
         await watch.getByRole('button', { name: 'Read all 2 turns at once' }).click();
         await expect(watch.locator('#turn-row-1')).toBeVisible();
+        const history = watch.locator('.sim-columns');
+        expect((await history.boundingBox())?.height).toBeGreaterThan(0);
         await expectInkOutsideCanvas(watch);
         await watch.getByRole('button', { name: 'Back to one turn at a time' }).click();
         await expect(watch.locator('#watch-turn-heading')).toBeFocused();

@@ -100,6 +100,8 @@ test('a long winner name leaves every word of the verdict headline whole at 800p
   });
   await openPair(page, 'light');
   await expect(page.getByRole('status', { name: /^Simulation status: Complete\./ })).toBeVisible();
+  await expect(page.getByRole('status', { name: 'Simulation verdict' })).toHaveCount(0);
+  await openTab(page, 'reports');
   const banner = page.getByRole('status', { name: 'Simulation verdict' });
   await expect(banner.getByText(leader + ' wins', { exact: true })).toBeVisible();
   const title = banner.getByText(headline, { exact: true });
@@ -215,7 +217,7 @@ test('generated leaders and successful chat replies carry their own source', asy
     await route.continue({ postData: { ...route.request().postDataJSON(), actors } });
   });
   await openPair(page, 'dark');
-  await expect(page.getByText('Generated leader', { exact: true }).first()).toBeVisible();
+  await expectMark(page.getByText('Generated leader', { exact: true }).filter({ visible: true }).and(page.locator(mark)).first());
   const reply = await page.request.post(origin + '/chat', {
     data: { agentId: 'generated-leader-crew-1', leader: 'Generated leader', message: 'How are the stores?' },
   });
@@ -625,6 +627,7 @@ test('editing generated instructions clears their source and preserves the other
   expect(edited.aiAuthorship.fields).not.toContain('instructions');
   expect(supplied.aiAuthorship).toBeUndefined();
   await page.waitForURL(url => url.searchParams.get('tab') === 'sim');
+  await page.getByRole('button', { name: /^Read all \d+ turns at once$/ }).click();
   const authoredArchetype = page.getByText('ENGINEER', { exact: true }).filter({ visible: true })
     .and(page.locator(mark)).first();
   await expectMark(authoredArchetype);

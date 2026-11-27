@@ -5023,11 +5023,13 @@ screenTest('pictures: Watch on the stub pair at 390 and 1,440 in both looks', as
           const panels = watchPanels(page);
           await expect(panels).toHaveCount(2);
           const [first, second] = await Promise.all([tokenColour(page, '--vis'), tokenColour(page, '--eng')]);
-          for (const panel of [panels.nth(0), panels.nth(1)]) {
+          for (const [place, panel] of [panels.nth(0), panels.nth(1)].entries()) {
+            if (size.width < 768) await page.getByRole('button', { name: `${place + 1} ${PAIR[place].name}`, exact: true }).click();
             await expect
               .poll(async () => (await drawingOf(panel.locator('canvas'), first, second)).drawn, { message: 'the panel has drawn its colony' })
               .toBeGreaterThan(0);
           }
+          if (size.width < 768) await page.getByRole('button', { name: `1 ${PAIR[0].name}`, exact: true }).click();
           await wholePicture(page, panels.nth(0), `${size.width}-${look}-watch`);
         });
       }
