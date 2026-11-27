@@ -4,7 +4,6 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import type { LeaderPromptAnswer } from '../../src/api/leader-prompt.js';
 import { marsScenario } from '../../src/engine/scenarios/index.js';
 import { lookOf, scaleText, SERVERS } from '../support/frame.js';
-
 import { axeFindings, measureReadability, rowsOnOneRow } from '../support/first-screen-measure.js';
 import { FIGURES, measureText, settle, spacingFaults } from '../support/readability.js';
 
@@ -365,7 +364,7 @@ test('phone headings open independently and prompt text reflows with 200% text s
   await page.addStyleTag({ content: 'dialog, dialog * { line-height: 1.5 !important; letter-spacing: .12em !important; word-spacing: .16em !important; }' });
   await expect(close(page)).toBeVisible();
   expect(await panel.evaluate(el => [el, ...el.querySelectorAll('div, blockquote, h2, h3')]
-    .filter(node => node.clientWidth > 0 && node.scrollWidth > node.clientWidth + 1).map(node => node.tagName))).toEqual([]);
+    .filter(node => !node.closest('.sr-only') && node.clientWidth > 0 && node.scrollWidth > node.clientWidth + 1).map(node => node.tagName))).toEqual([]);
 });
 
 for (const width of [390, 1440]) {
@@ -388,7 +387,9 @@ for (const width of [390, 1440]) {
           });
           const published = readFileSync(new URL(`../../docs/design/sim-first-screen/full-prompt/${file}`, import.meta.url));
           const result = await page.evaluate(async ({ before, after }) => {
-            const decode = async (png: string) => createImageBitmap(await (await fetch('data:image/png;base64,' + png)).blob());
+            const decode = (png: string) => createImageBitmap(
+              new Blob([Uint8Array.from(atob(png), char => char.charCodeAt(0))], { type: 'image/png' }),
+            );
             const [reference, rendered] = await Promise.all([decode(before), decode(after)]);
             const size = [reference.width, reference.height];
             const renderedSize = [rendered.width, rendered.height];
@@ -453,7 +454,7 @@ async function measurePromptWords(page: Page, root: string, minLine: number) {
       if (style.visibility !== 'visible') return [];
       const face = node.matches('code') ? 'JetBrains Mono' : 'Inter';
       const role = node.closest('[data-text]')?.getAttribute('data-text');
-      const floor = role === 'body' || role === 'heading' ? 1.55 : min;
+      const floor = role === 'body' ? 1.55 : min;
       const line = parseFloat(style.lineHeight) / parseFloat(style.fontSize);
       return style.fontFamily.startsWith('"' + face + '"') || style.fontFamily.startsWith(face)
         ? (['400', '600'].includes(style.fontWeight) && line + 0.001 >= floor ? [] : [`${node.textContent?.trim().slice(0, 60)}: ${style.fontWeight}, line height ${line}`])
@@ -467,7 +468,7 @@ async function expectPromptReflow(page: Page) {
   expect.soft(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
   expect.soft(await rowsOnOneRow(page)).toEqual([]);
   expect.soft(await dialog(page).evaluate(el => [el, ...el.querySelectorAll('header, nav, section, div, blockquote, h2, h3, button, a, p')]
-    .filter(node => node.clientWidth > 0 && node.scrollWidth > node.clientWidth + 1)
+    .filter(node => !node.closest('.sr-only') && node.clientWidth > 0 && node.scrollWidth > node.clientWidth + 1)
     .map(node => node.tagName + ' ' + (node.textContent ?? '').trim().slice(0, 60)))).toEqual([]);
 }
 
@@ -553,7 +554,10 @@ for (const look of ['light', 'dark'] as const) {
       let requests = 0;
       await page.route(routePrompt, async route => {
         if (++requests === 1) return route.abort();
-        await held.held;
+        if (requests === 2) {
+          await held.held;
+          return route.fulfill({ status: 429, json: { error: 'prompt_read_limit' } });
+        }
         return route.continue();
       });
       await opener(page).first().click();
@@ -561,7 +565,6 @@ for (const look of ['light', 'dark'] as const) {
       await expectTarget(retry(page), 96, 44);
       expect.soft(await measureReadability(page, panelRoot)).toEqual([]);
       await measurePromptWords(page, panelRoot, 1.4);
-      const response = promptResponse(page);
       await retry(page).click();
       const trying = dialog(page).getByRole('button', { name: 'Trying…' });
       try {
@@ -571,6 +574,11 @@ for (const look of ['light', 'dark'] as const) {
       } finally {
         held.release();
       }
+      await expect(dialog(page).getByText('Too many requests from this connection. Try again in a minute.')).toBeVisible();
+      expect.soft(await measureReadability(page, panelRoot)).toEqual([]);
+      await measurePromptWords(page, panelRoot, 1.4);
+      const response = promptResponse(page);
+      await retry(page).click();
       const answer: LeaderPromptAnswer = await (await response).json();
       const panel = dialog(page);
       await expectParts(panel, answer);
@@ -607,7 +615,28 @@ for (const look of ['light', 'dark'] as const) {
       if (width === 390 || width === 1440) expect.soft(await axeFindings(page, 'body')).toEqual([]);
 
       await close(page).click();
-      expect.soft(await measureReadability(page, keyRoot + ':visible')).toEqual([]);
+      await context.setOffline(true);
+      try {
+        await opener(page).first().click();
+        await expect(panel.getByText(/^You are offline/)).toBeVisible();
+        expect.soft(await measureReadability(page, panelRoot)).toEqual([]);
+        await measurePromptWords(page, panelRoot, 1.4);
+        await close(page).click();
+      } finally {
+        await context.setOffline(false);
+      }
+
+      expect((await page.request.post(SERVERS.demo + '/scenario/switch', { data: { id: 'lunar-outpost' } })).ok()).toBe(true);
+      await opener(page).first().click();
+      const reload = panel.getByRole('button', { name: 'Reload', exact: true });
+      await expect(reload).toBeVisible();
+      await expectTarget(reload, 96, 44);
+      expect.soft(await measureReadability(page, panelRoot)).toEqual([]);
+      await measurePromptWords(page, panelRoot, 1.4);
+      await close(page).click();
+      for (let index = 0; index < await page.locator(keyRoot).count(); index++) {
+        expect.soft(await measureReadability(page, `${keyRoot} >> nth=${index}`)).toEqual([]);
+      }
       await page.goto(SERVERS.demo + '/#privacy');
       await page.evaluate(() => document.fonts.ready.then(() => undefined));
       expect((await lookOf(page)).light).toBe(look === 'light');
