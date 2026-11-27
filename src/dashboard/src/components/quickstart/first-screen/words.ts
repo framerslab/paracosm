@@ -14,7 +14,7 @@ export const NBSP = '\u00a0';
 export const PAGE_TITLE = 'Simulate one scenario side by side under different leaders | Paracosm';
 
 /** The page's description for search and sharing. */
-export const PAGE_DESCRIPTION = 'Simulate the same scenario 2 to 300 times from the same start and compare where the runs part, turn by turn. An AI event director writes each run’s crises, and only the leader differs: read each one’s personality scores and orders before you start.';
+export const PAGE_DESCRIPTION = 'Simulate the same scenario 2 to 300 times from the same start and compare where the runs part, turn by turn. An AI event director writes each run’s unscripted crises, and only the leader differs: read each one’s personality scores and orders before you start.';
 
 /** The short capital mark over the scenario's name. */
 export const SCENARIO_MARK = 'SCENARIO';
@@ -36,7 +36,7 @@ export function countOf(n: number, one: string, many: string): string {
 export function scenarioSentences(o: { n: number; turns: number; place?: string; atLimit: boolean }): string {
   const place = o.place?.trim() || FALLBACK_PLACE;
   const runs = o.n <= 2 ? 'Two runs' : `${o.n}${NBSP}runs`;
-  const comparison = `${runs} of ${place} start from the same state and play for ${countOf(o.turns, 'turn', 'turns')}, and an AI event director writes each run’s crises from what happens in it. Only the leader differs: its personality and its orders.`;
+  const comparison = `${runs} of ${place} start from the same state and play for ${countOf(o.turns, 'turn', 'turns')}, and an AI event director writes each run’s unscripted crises from what happens in it. Only the leader differs: its personality and its orders.`;
   const press = 'Press Start to watch them decide.';
   const end = o.n <= 2
     ? `At the end, a verdict says who won and${NBSP}why.`
