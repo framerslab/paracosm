@@ -86,6 +86,40 @@ for (const width of [320, 390, 640, 800]) {
   }
 }
 
+test('a long winner name leaves every word of the verdict headline whole at 800px', async ({ page }) => {
+  const leader = 'Verdict headline beside a winner name of some length';
+  const headline = 'Warming winds and widespread wildfires overwhelmed Mars while reserves dwindled.';
+  await page.setViewportSize({ width: 800, height: 844 });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.route('**/setup', route => {
+    const setup = route.request().postDataJSON();
+    setup.actors[0].name = leader;
+    return route.continue({ postData: setup });
+  });
+  await openPair(page, 'light');
+  await expect(page.getByRole('status', { name: /^Simulation status: Complete\./ })).toBeVisible();
+  const banner = page.getByRole('status', { name: 'Simulation verdict' });
+  await expect(banner.getByText(leader + ' wins', { exact: true })).toBeVisible();
+  const title = banner.getByText(headline, { exact: true });
+  await expectMark(title);
+  await settle(banner);
+  const broken = await title.evaluate(element => {
+    const words: string[] = [];
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      for (const match of node.textContent!.matchAll(/\S+/g)) {
+        const range = document.createRange();
+        range.setStart(node, match.index!);
+        range.setEnd(node, match.index! + match[0].length);
+        if (range.getClientRects().length > 1) words.push(match[0]);
+      }
+    }
+    return words;
+  });
+  expect(broken, 'no word of the headline breaks across lines').toEqual([]);
+  await banner.screenshot({ path: 'test-pictures/sim-first-screen/ai-marks/verdict-long-winner-800.png', animations: 'disabled' });
+});
+
 async function expectMark(text: Locator) {
   await expect(text).toBeVisible();
   const block = text.locator('xpath=ancestor-or-self::*[@data-ai-generated="true"][1]');
@@ -198,6 +232,7 @@ test('generated leaders and successful chat replies carry their own source', asy
   const greeting = page.getByText(/I lived through this simulation/).first();
   await expect(notice).toHaveCount(1);
   await expect(notice).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Message Noor Aziz' })).toHaveAccessibleDescription(chatNotice);
   expect((await page.locator('body').innerText()).indexOf(chatNotice))
     .toBeLessThan((await page.locator('body').innerText()).indexOf((await greeting.innerText()).trim()));
   await expect(greeting).toBeVisible();
@@ -671,6 +706,49 @@ for (const count of [24, 300]) {
   });
 }
 
+for (const width of [390, 1280]) {
+  test(`a generated leader's bio keeps the supplied leader's layout in Watch at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(origin + '/sim');
+    const generated = await page.request.post(origin + '/api/quickstart/generate-actors', {
+      data: { scenarioId: 'mars-genesis', count: 2 },
+    });
+    expect(generated.ok()).toBeTruthy();
+    const { actors } = await generated.json();
+    expect(actors[0].aiAuthorship.fields).toContain('instructions');
+    delete actors[1].aiAuthorship;
+    await page.route('**/setup', async route => {
+      await route.continue({ postData: { ...route.request().postDataJSON(), actors } });
+    });
+    await openPair(page, 'light');
+    const bio = page.locator('.leaders-row').getByText('"' + actors[0].instructions + '"', { exact: true }).filter({ visible: true });
+    await expect(bio).toHaveCount(2);
+    await expectMark(bio.nth(0));
+    await expectUnmarked(bio.nth(1));
+    // Each bio is one line, beside that leader's sparklines where they show, whoever wrote it.
+    const rows = await bio.evaluateAll(nodes => nodes.map(node => {
+      const subRow = node.closest('div')!;
+      const quote = [...subRow.children].find(child => child.contains(node))!;
+      const sparklines = subRow.querySelector('.leader-sparklines')!;
+      const box = quote.getBoundingClientRect();
+      const spark = sparklines.getBoundingClientRect();
+      return {
+        sameRow: sparklines.getClientRects().length ? spark.top < box.bottom && spark.left >= box.right - 1 : null,
+        whiteSpace: getComputedStyle(quote).whiteSpace,
+      };
+    }));
+    const sameRow = width > 480 ? true : null;
+    expect(rows).toEqual([
+      { sameRow, whiteSpace: 'nowrap' },
+      { sameRow, whiteSpace: 'nowrap' },
+    ]);
+    await page.locator('.leaders-row').filter({ visible: true }).screenshot({
+      path: `test-pictures/sim-first-screen/ai-marks/leader-bios-${width}.png`,
+      animations: 'disabled',
+    });
+  });
+}
+
 test('Watch, the event log and the verdict dialog each expose ownership on the displayed passage', async ({ page }) => {
   await openPair(page, 'dark');
   const decision = page.getByText('Keep a reserve of water.', { exact: true }).filter({ visible: true }).first();
@@ -827,6 +905,28 @@ test('a run saved before field-level source marks its model passages and leaves 
       await expectMark(dialog.locator('[data-ai-generated="true"]').filter({ hasText: 'The next harvest needs a cushion.' }));
     } else {
       await expectUnmarked(dialog.getByText(fallbackDecision, { exact: false }));
+    }
+    const [pdfDownload] = await Promise.all([
+      page.waitForEvent('download'),
+      dialog.getByRole('button', { name: 'Download PDF' }).click(),
+    ]);
+    const dashboardRequire = createRequire(new URL('../../src/dashboard/package.json', import.meta.url));
+    const pdfJs = await import(pathToFileURL(dashboardRequire.resolve('pdfjs-dist/legacy/build/pdf.mjs')).href);
+    const rendering = pdfJs.getDocument({ data: Uint8Array.from(readFileSync(await pdfDownload.path())), disableFontFace: true });
+    const pdf = await rendering.promise;
+    try {
+      const runJson = Array.from(await pdf.getAttachments() ?? []).find(([, file]) => file.filename === 'run.json');
+      expect(runJson, 'the report includes the run as a JSON attachment').toBeDefined();
+      const json = JSON.parse(new TextDecoder().decode((await pdf.getAttachmentContent(runJson![0]))!));
+      // A run saved before field-level source keeps, in run.json, the authorship the report shows.
+      if (authored) expect(json.decisions[0].aiWrittenFields).toEqual(expect.arrayContaining(['choice', 'rationale']));
+      else {
+        expect(json.decisions[0].choice).toBe(fallbackDecision);
+        expect(json.decisions[0].aiWrittenFields).toEqual(expect.any(Array));
+        expect(json.decisions[0].aiWrittenFields).not.toContain('choice');
+      }
+    } finally {
+      await rendering.destroy();
     }
   }
 });
