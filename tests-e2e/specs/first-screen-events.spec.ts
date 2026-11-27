@@ -214,6 +214,49 @@ test('pair, help and frame count each changed selection once', async ({ browser 
   }
 });
 
+for (const size of [24, 300]) {
+  test(`a run of ${size} counts each change of the shown leader on a phone`, async ({ browser }) => {
+    const { context, page, assertEvents } = await open(browser, SERVERS.demo, { viewport: { width: 390, height: 844 } });
+    try {
+      await saveKey(page);
+      await page.goto(`/sim?size=${size}`);
+      await expect(startKey(page)).toBeEnabled();
+      await expect(page.getByTestId('writes-all')).toBeVisible();
+      await assertEvents([view('direct')]);
+      const second = leaders(page).getByRole('tab').nth(1);
+      await second.click();
+      await second.click();
+      await second.press('ArrowLeft');
+      await expect(leaders(page).getByRole('tab').first()).toHaveAttribute('aria-selected', 'true');
+      await assertEvents([view('direct'), event('qs_pair_switch', { to: '2' }), event('qs_pair_switch', { to: '1' })]);
+    } finally {
+      await context.close();
+    }
+  });
+}
+
+test('a written scenario whose leaders the provider refuses on the visitor key points to Settings, not an error code', async ({ browser }) => {
+  const { context, page } = await open(browser);
+  try {
+    await saveKey(page);
+    const scenario = await (await context.request.get('/scenario')).json();
+    await page.route('**/api/quickstart/compile-from-seed', route => route.fulfill({ json: { status: 'done', jobId: 'job-1', scenario } }));
+    await page.route('**/api/quickstart/ground-scenario', route => route.fulfill({ json: { skipped: true, reason: 'not configured' } }));
+    await page.route('**/api/quickstart/generate-actors', route => route.fulfill({
+      status: 401, json: { error: 'key_refused', message: 'The provider refused your API key.' },
+    }));
+    await page.goto('/sim');
+    await expect(startKey(page)).toBeEnabled();
+    const part = page.getByTestId('write-your-own');
+    await part.locator('[data-quickstart-seed]').fill('A harbour town loses its ferry for a season and two councils decide how to ration fuel. '.repeat(4));
+    await part.getByRole('button', { name: /^Generate \+ Run/ }).click();
+    await expect(page.getByRole('alert').filter({ hasText: 'Check your API key in Settings.' }).first()).toBeVisible();
+    await expect(page.getByText('key_refused')).toHaveCount(0);
+  } finally {
+    await context.close();
+  }
+});
+
 test('double presses through preflight and setup count one real launch', async ({ browser }) => {
   const { context, page, assertEvents } = await open(browser);
   const count = gate();

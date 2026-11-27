@@ -6,8 +6,9 @@
  * JSON element #paracosm-consent-config) to the pages it sends in
  * hosted_demo mode (src/server/site-analytics.ts). Three purposes:
  *   count    Plausible, cookieless, on until the visitor turns it off. Page
- *            views go to this site's own POST /api/event, which forwards
- *            the page's public address and no referrer.
+ *            views and the dashboard's named events go to this site's own
+ *            POST /api/event, which forwards the page's public address and
+ *            no referrer.
  *   measure  Google Analytics 4, off until the visitor turns it on.
  *   record   Microsoft Clarity, off until the visitor turns it on.
  * The bar offers only the purposes whose tool this build configures. No
@@ -96,7 +97,7 @@
     notSaved: 'Your choice could not be saved on this device, so it holds only until you leave this page.',
     rows: [
       { id: 'necessary', name: 'Strictly necessary', vendor: '', text: 'The dashboard’s two cookies, which keep your scenario pick and your runs with this browser.' },
-      { id: 'count', name: 'Count visits', vendor: 'Plausible', text: 'Counts page views with no cookie. Our server holds your IP address in memory for one minute to limit repeated counts. Plausible receives your browser’s full User-Agent and your IP address, uses them for a daily visitor identifier, your browser and device and an approximate location, and stores neither.' },
+      { id: 'count', name: 'Count visits', vendor: 'Plausible', text: 'Counts page views and actions on the dashboard, with no cookie. Our server holds your IP address in memory for one minute to limit repeated counts. Plausible receives your browser’s full User-Agent and your IP address, uses them for a daily visitor identifier, your browser and device and an approximate location, and stores neither.' },
       { id: 'measure', name: 'Measure use', vendor: 'Google Analytics', text: 'Sets cookies that tell visits apart, to show how each page is used. Google signals and ad personalization stay off.' },
       { id: 'record', name: 'Record sessions', vendor: 'Microsoft Clarity', text: 'Records clicks and scrolling as replays and heatmaps, with the page’s text and images masked.' },
     ].filter(function (row) { return row.id === 'necessary' || RUNS[row.id]; }),

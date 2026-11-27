@@ -712,6 +712,39 @@ test.describe('the consent bar on the hosted demo', () => {
     }
   });
 
+  test('an answer given to the count words before dashboard events asks again, and its no to the count holds', async ({ browser }) => {
+    const { context, page, watch } = await open(browser, 'count-words', { viewport: { width: 390, height: 844 } });
+    try {
+      await page.goto('/');
+      await expect(bar(page)).toBeVisible();
+      const words = await page.evaluate(() => JSON.parse(JSON.stringify(
+        (window as unknown as { __paracosmConsent: { words: unknown } }).__paracosmConsent.words,
+      )) as { rows: Array<{ id: string; text: string }> });
+      const count = words.rows.find(row => row.id === 'count')!;
+      expect(count.text, 'the count row names the dashboard events it takes').toMatch(/^Counts page views and actions on the dashboard,/);
+      count.text = 'Counts page views with no cookie. Our server holds your IP address in memory for one minute to limit repeated counts. Plausible receives your browser’s full User-Agent and your IP address, uses them for a daily visitor identifier, your browser and device and an approximate location, and stores neither.';
+      const earlier = createHash('sha256').update(JSON.stringify(words)).digest('hex');
+      await page.evaluate(hash => {
+        localStorage.setItem('analytics_consent_purposes', JSON.stringify({
+          purposes: { count: false, measure: true, record: true }, at: '2026-11-20T00:00:00.000Z', words: hash, version: 1,
+        }));
+        localStorage.setItem('plausible_ignore', 'true');
+      }, earlier);
+
+      const before = watch.counts.length;
+      await page.goto('/sim');
+      await expect(bar(page)).toBeVisible();
+      await expect.poll(() => page.evaluate(() => {
+        const consent = (window as unknown as { paracosmConsent: { ready: boolean; allows: (purpose: string) => boolean } }).paracosmConsent;
+        return consent.ready && ['count', 'measure', 'record'].map(purpose => consent.allows(purpose));
+      })).toEqual([false, false, false]);
+      expect(watch.counts.slice(before), 'the earlier no to the count holds until a new answer').toEqual([]);
+      expect(watch.vendor).toEqual([]);
+    } finally {
+      await context.close();
+    }
+  });
+
   test('Choose moves focus to the first switch, Tab follows the order on screen, and Escape goes back to Choose with the first layer still there', async ({ browser }) => {
     // At phone width the bar is one column, so the order on screen is top to bottom.
     const { context, page } = await open(browser, 'focus', { viewport: { width: 390, height: 844 } });

@@ -326,7 +326,7 @@ export function LeaderPair({ size = 2 }: LeaderPairProps) {
   const leader = pair[at];
   const showLeaderAt = (index: number) => {
     if (index === at) return;
-    if (size === 2) sendEvent('qs_pair_switch', { to: String(index + 1) });
+    sendEvent('qs_pair_switch', { to: String(index + 1) });
     setShown(index);
   };
   return (

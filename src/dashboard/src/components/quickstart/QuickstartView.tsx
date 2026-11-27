@@ -127,7 +127,7 @@ function mapLaunchErrorToMessage(raw: string): string {
   if (/HTTP 429|rate.?limit/i.test(raw)) {
     return `${atLimitReset()} ${atLimitAfter(false)}`;
   }
-  if (/HTTP 401|HTTP 403|unauthor/i.test(raw)) {
+  if (/HTTP 401|HTTP 403|unauthor|key_refused/i.test(raw)) {
     return 'Auth error talking to the LLM provider. Check your API key in Settings.';
   }
   if (/Two actors required|at least 2 actors/i.test(raw)) {
