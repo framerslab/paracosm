@@ -4,6 +4,8 @@
   "version": "1.0.0",
   "engineArchetype": "closed_turn_based_settlement",
   "labels": {
+    "summary": "Two executives decide when to hire, cut costs and ship products.",
+    "fictionNote": "Fiction. Not financial advice.",
     "name": "Q-Scope Corp",
     "shortName": "corp",
     "populationNoun": "employees",

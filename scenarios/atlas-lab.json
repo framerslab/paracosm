@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "engineArchetype": "closed_turn_based_settlement",
   "labels": {
+    "summary": "Two lab directors decide whether a new model is ready to release.",
     "name": "Atlas Lab",
     "shortName": "atlas-lab",
     "populationNoun": "researchers",

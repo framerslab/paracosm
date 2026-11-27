@@ -34,12 +34,13 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { atlasLab, mars, readReplay, settingsBody, startServer, waitFor, type RunServer } from './helpers/run-server.js';
+import { atlasLab, mars, readScenario, readReplay, settingsBody, startServer, waitFor, type RunServer } from './helpers/run-server.js';
 import type { Visitor } from './helpers/visitor.js';
+import { compileScenario } from '../../src/engine/compiler/index.js';
 import type { ScenarioPackage } from '../../src/engine/types.js';
 
 /** The limits the server holds the memory store to. */
@@ -96,6 +97,7 @@ interface Sandbox {
 
 interface SandboxOptions {
   env?: Record<string, string>;
+  files?: string[];
   /** Saved compiled drafts put in `<scenarioDir>/compiled/` before the server starts; a greater age is an older file. */
   drafts?: Array<{ id: string; name: string; ageSeconds: number }>;
   /** Further createMarsServer options. */
@@ -107,7 +109,9 @@ async function withCatalog(body: (box: Sandbox) => Promise<void>, options: Sandb
   const root = mkdtempSync(join(tmpdir(), 'paracosm-catalog-scope-'));
   const scenarioDir = join(root, 'scenarios');
   mkdirSync(join(scenarioDir, 'compiled'), { recursive: true });
-  copyFileSync(fileURLToPath(new URL('../../scenarios/atlas-lab.json', import.meta.url)), join(scenarioDir, 'atlas-lab.json'));
+  for (const file of options.files ?? ['atlas-lab.json']) {
+    copyFileSync(fileURLToPath(new URL(`../../scenarios/${file}`, import.meta.url)), join(scenarioDir, file));
+  }
   const now = Math.floor(Date.now() / 1000);
   for (const { id, name, ageSeconds } of options.drafts ?? []) {
     const { hooks: _hooks, ...draft } = station(id, name);
@@ -135,7 +139,16 @@ async function withCatalog(body: (box: Sandbox) => Promise<void>, options: Sandb
   }
 }
 
-interface CatalogEntry { id: string; name: string; source: string }
+interface CatalogEntry {
+  id: string;
+  name: string;
+  source: string;
+  departments: number;
+  turns?: number;
+  leaders?: string[];
+  summary?: string;
+  fictionNote?: string;
+}
 
 async function catalog(v: Visitor): Promise<CatalogEntry[]> {
   return (await v.json<{ scenarios: CatalogEntry[] }>('/scenarios')).scenarios;
@@ -179,6 +192,116 @@ async function quickstartCompile(v: Visitor, seedText: string): Promise<string> 
     return body.status === 'done' ? body.scenarioId : null;
   }, 'the Quickstart compile to finish', 5000);
 }
+
+test('catalog facts follow the resolved visitor row', async () => {
+  const summaries = {
+    'lunar.json': "A crew at the Moon's south pole. Two commanders decide how hard to push.",
+    'submarine.json': 'A research station on the sea floor. Two captains weigh discovery against safety.',
+    'mars.json': 'Two leaders decide how a Mars colony uses its people and supplies.',
+    'atlas-lab.json': 'Two lab directors decide whether a new model is ready to release.',
+    'corporate-quarterly.json': 'Two executives decide when to hire, cut costs and ship products.',
+    'dual-superintelligence-council.json': 'A council weighs whether to expand the work of two AI systems or keep them under tighter control.',
+    't2d-glp1-protocol.json': 'Two fictional doctors follow a group of patients over two years.',
+  };
+  const files = Object.keys(summaries);
+
+  await withCatalog(async ({ api }) => {
+    const a = api.cookied();
+    const b = api.cookied();
+    await waitFor(() => entry(a, 'sparse-station'), 'the compiled row');
+    const twinFile = 't2d-glp1-protocol.json';
+    const twinDraft = JSON.parse(readFileSync(new URL(`../../scenarios/${twinFile}`, import.meta.url), 'utf8'));
+    assert.equal(await entry(a, twinDraft.id), undefined, 'the uncompiled Digital Twin stays out of the catalog');
+    const twin = await compileScenario(twinDraft, { cache: false, generateText: async () => 'not a hook' });
+    assert.equal((await store(a, twin)).status, 200);
+    assert.equal(await entry(b, twin.id), undefined, 'the compiled copy is visible to its visitor alone');
+
+    const shared = await catalog(a);
+    for (const [file, summary] of Object.entries(summaries)) {
+      const row = shared.find(e => e.id === readScenario(file).id);
+      assert.ok(row, file);
+      assert.equal(row.summary, summary, file);
+    }
+    const lunar = readScenario('lunar.json');
+    const lunarRow = shared.find(e => e.id === lunar.id);
+    assert.ok(lunarRow);
+    assert.equal(lunarRow.turns, 8);
+    assert.equal(lunarRow.departments, 5);
+    const ocean = readScenario('submarine.json');
+    assert.equal(shared.find(row => row.id === ocean.id)?.departments, 5);
+    assert.deepEqual(lunarRow.leaders, lunar.presets[0].leaders.map(leader => leader.name));
+    assert.equal(shared.find(row => row.id === 'corporate-quarterly')?.fictionNote, 'Fiction. Not financial advice.');
+    assert.equal(shared.find(row => row.id === 't2d-glp1-protocol')?.fictionNote, 'Fiction. Not medical advice.');
+    const old = shared.find(row => row.id === 'sparse-station');
+    assert.ok(old);
+    assert.equal(old.source, 'compiled');
+    assert.deepEqual(old.leaders, []);
+    assert.equal(Object.hasOwn(old, 'summary'), false);
+    assert.equal(Object.hasOwn(old, 'fictionNote'), false);
+
+    const id = 'two-visitor-station';
+    const first = lunar.presets[0].leaders[0];
+    const variants = [
+      { visitor: a, name: 'Northern station', summary: 'Northern crew.', fictionNote: 'A fictional station.', turns: 4, leaders: ['North One', 'North Two'] },
+      { visitor: b, name: 'Southern station', summary: 123, fictionNote: 'Another fictional station.', turns: 7, leaders: ['South One'] },
+    ];
+    for (const row of variants) {
+      const own = station(id, row.name);
+      const response = await store(row.visitor, {
+        ...own,
+        labels: { ...own.labels, summary: row.summary, fictionNote: row.fictionNote },
+        setup: { ...own.setup, defaultTurns: row.turns },
+        presets: [{ leaders: [...row.leaders.map(name => ({ ...first, name })), { ...first, name: 0 }] }],
+      });
+      assert.equal(response.status, 200);
+    }
+    assert.equal((await a.post('/scenario/switch', { id })).status, 200);
+    for (const expected of variants) {
+      const response = await expected.visitor.get('/scenarios');
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get('cache-control'), 'no-store');
+      assert.equal(response.headers.get('vary'), 'Cookie');
+      const answer = await response.json() as { scenarios: CatalogEntry[]; active: string };
+      assert.equal(answer.active, expected.visitor === a ? id : mars.id);
+      const own = answer.scenarios.filter(row => row.id === id);
+      assert.equal(own.length, 1);
+      assert.equal(own[0].source, 'memory');
+      assert.equal(own[0].name, expected.name);
+      assert.equal(own[0].turns, expected.turns);
+      assert.deepEqual(own[0].leaders, expected.leaders);
+      assert.equal(own[0].fictionNote, expected.fictionNote);
+      if (typeof expected.summary === 'string') assert.equal(own[0].summary, expected.summary);
+      else assert.equal(Object.hasOwn(own[0], 'summary'), false);
+    }
+
+    // An older compile wrote the first preset's leaders as `actors`; Start runs them, so the row names them.
+    const legacy = station('legacy-actors-station', 'Legacy station');
+    assert.equal((await store(a, {
+      ...legacy,
+      presets: [{ id: 'legacy', label: 'Legacy', actors: [{ ...first, name: 'Legacy One' }, { ...first, name: 'Legacy Two' }] }],
+    })).status, 200);
+    assert.deepEqual((await entry(a, 'legacy-actors-station'))?.leaders, ['Legacy One', 'Legacy Two']);
+  }, {
+    files,
+    env: { PARACOSM_HOSTED_DEMO: 'true', PARACOSM_PLATFORM_API: '' },
+    drafts: [{ id: 'sparse-station', name: 'Sparse Station', ageSeconds: 10 }],
+  });
+
+  for (const PARACOSM_PLATFORM_API of ['', 'true']) {
+    await withCatalog(async ({ api }) => {
+      const v = api.cookied();
+      assert.equal((await store(v, oceanStation)).status, 200);
+      const rows = await catalog(v);
+      assert.ok(rows.some(row => row.id === oceanStation.id));
+      assert.ok(rows.some(row => row.id === mars.id));
+      for (const row of rows) {
+        for (const field of ['turns', 'leaders', 'summary', 'fictionNote']) {
+          assert.equal(Object.hasOwn(row, field), false, `${row.id}: ${field}`);
+        }
+      }
+    }, { files, env: { PARACOSM_HOSTED_DEMO: '', PARACOSM_PLATFORM_API } });
+  }
+});
 
 test('a compile under the id of a built-in or a curated scenario is refused before it starts and changes nothing anyone sees or runs', async () => {
   await withCatalog(async ({ api, scenarioDir, compiles }) => {

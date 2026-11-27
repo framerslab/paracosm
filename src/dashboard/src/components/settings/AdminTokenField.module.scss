@@ -1,7 +1,8 @@
 // The admin token row in Settings. Its controls repeat the panel's own:
 // the input is SettingsPanel's .input, the buttons are the scenario
 // editor's .actionBtn and its amber variant, the label is the settings
-// label. Text is 13px or more.
+// label. Text is 13px or more, and the status line under the row takes
+// the reading size.
 
 .intro {
   font-size: var(--font-md);
@@ -78,9 +79,12 @@
   border: 1px solid var(--amber-dim, var(--border));
 }
 
+// Whether a token is saved. The reading size (--font-read, 15px) in
+// --text-2 on the group's --bg-panel: 7:1 or more in both looks, where
+// --text-3 fell short in the dark one.
 .status {
-  font-size: var(--font-md);
-  color: var(--text-3);
+  font-size: var(--font-read);
+  color: var(--text-2);
   margin-top: 6px;
   line-height: 1.4;
 }

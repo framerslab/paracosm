@@ -1,6 +1,5 @@
 import * as React from 'react';
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, type CSSProperties, type ReactNode } from 'react';
-import styles from './AiWritten.module.scss';
 
 void React;
 
@@ -30,16 +29,20 @@ export function AiWritten({
   title?: string;
 }) {
   const register = useContext(Registration);
-  const label = useRef<HTMLSpanElement>(null);
+  const block = useRef<HTMLElement>(null);
   useLayoutEffect(() => {
-    const block = label.current?.parentElement;
-    if (authored && block && register) return register(block);
+    if (authored && block.current && register) return register(block.current);
   }, [authored, register, Element]);
 
   return (
-    <Element className={className} style={style} title={title} data-ai-generated={authored ? 'true' : undefined}>
-      {authored && (typeof children === 'string' || typeof children === 'number') ? <span>{children}</span> : children}
-      {authored && <> <span ref={label} className={styles.label} data-text="other">AI-written</span></>}
+    <Element
+      ref={(node: HTMLElement | null) => { block.current = node; }}
+      className={className}
+      style={style}
+      title={title}
+      data-ai-generated={authored ? 'true' : undefined}
+    >
+      {children}
     </Element>
   );
 }

@@ -44,8 +44,8 @@ export interface WireCall {
   stream: boolean;
 }
 
-/** Writes the text a completion request is answered with, or undefined for the 400. */
-export type WireReply = (call: WireCall) => string | undefined;
+/** Supplies completion text, a full provider reply, or undefined for the default 400. */
+export type WireReply = (call: WireCall) => string | Response | undefined;
 
 /** The message every model call is answered with. */
 export const OVERLOADED = 'The stub model is overloaded.';
@@ -139,10 +139,12 @@ function answer(call: WireCall, reply: WireReply | undefined, anthropicReply: Wi
   }
   if (call.provider === 'anthropic') {
     const message = anthropicReply?.(call);
+    if (message instanceof Response) return message;
     if (message !== undefined) return anthropicMessage(call, message);
     return json({ type: 'error', error: { type: 'invalid_request_error', message: OVERLOADED } }, 400);
   }
   const text = call.provider === 'openai' ? reply?.(call) : undefined;
+  if (text instanceof Response) return text;
   if (text !== undefined) return openAiCompletion(call, text);
   return json({ error: { message: OVERLOADED, type: 'invalid_request_error', code: null } }, 400);
 }

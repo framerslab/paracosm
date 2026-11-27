@@ -105,6 +105,25 @@ button.card {
   color: var(--text-1);
 }
 
+.details {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.summary {
+  font-size: var(--font-read-body);
+  line-height: 1.55;
+  font-weight: 400;
+}
+
+.detailLine {
+  font-size: var(--font-read);
+  line-height: 1.4;
+  font-weight: 400;
+}
+
 .state,
 .figures {
   font-size: var(--font-read);

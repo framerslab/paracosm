@@ -88,11 +88,6 @@
   display: block;
   overflow-wrap: anywhere;
   width: 100%;
-
-  [data-ai-generated='true'] > [data-text='other'] {
-    overflow-wrap: normal;
-    white-space: nowrap;
-  }
 }
 
 // Static info text variant — same visual weight as `.headlineButton`
@@ -164,9 +159,9 @@
   &:hover { color: var(--text-1); }
 }
 
-/* Wider than 768 px the banner is one row. Its keys keep their size, so a
-   long winner's name gives way before the headline column narrows past
-   192 px, which holds the AI-written label and a readable headline. */
+/* Wider than 768 px the banner is one row. A long winner's name wraps
+   before the headline column narrows past 192 px, so the headline keeps
+   whole words. */
 @media (min-width: 769px) {
   .winnerLabel {
     flex: 0 1 auto;
@@ -181,14 +176,7 @@
   .headlineColumn { min-width: 192px; }
 }
 
-/* Phone and tablet portrait. The banner's row (winner label | divider |
-   headline | view button | reports chip | dismiss) leaves the headline
-   column too narrow up to 768 px: the winner's name and the keys take the
-   width, `.winnerName` clipped mid-character on iPhone 12, and the
-   AI-written label ran over the view button. Stack the banner into three
-   rows: header (winner + dismiss), headline, action row. The left-border
-   accent on `.headlineColumn` flips to a top border so the visual
-   separator survives the column flip. */
+/* Give the winner and headline the full width on phones and portrait tablets. */
 @media (max-width: 768px) {
   .banner {
     flex-direction: column;

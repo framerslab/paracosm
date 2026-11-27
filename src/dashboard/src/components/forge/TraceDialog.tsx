@@ -8,7 +8,6 @@ import { ActorTile } from './ActorTile';
 import { STATIONS, attemptNumber, forgeLineModel, glyphFor, lineColour, usesOf, type StationId } from './forgeLine';
 import { ForgeLine } from './ForgeLine.tsx';
 import {
-  AI_WRITTEN_LABEL,
   ATTEMPT_WORDS,
   CLOSE_TRACE,
   COPY_LINK,
@@ -32,7 +31,7 @@ import { AddedStation } from './stations/AddedStation';
 import { JudgeStation } from './stations/JudgeStation';
 import { NotRecorded } from './stations/NotRecorded';
 import { RecordedReason } from './stations/RecordedReason';
-import { RequestStation } from './stations/RequestStation';
+import { RequestDescription, RequestStation } from './stations/RequestStation';
 import styles from './TraceDialog.module.scss';
 
 /** What the trace shows, for the page's address: its attempt (0 with none) and its open stations, in the line's order. */
@@ -285,7 +284,7 @@ export function TraceDialog({
   // Each closed station's one line. A station the record says nothing of keeps the line's own word for it.
   const stationResult = (station: StationId): ReactNode => {
     switch (station) {
-      case 'request': return shown?.description || entry.description;
+      case 'request': return <RequestDescription entry={entry} attempt={shown} />;
       case 'code': return passed ? <NotRecorded station="code" /> : null;
       case 'tests': return passed ? <NotRecorded station="tests" /> : null;
       case 'judge': return passed ? judgeApprovedLine(confidence) : null;
@@ -419,7 +418,6 @@ export function TraceDialog({
               </button>
             </div>
           )}
-          <p className={styles.label}>{AI_WRITTEN_LABEL}</p>
           <h2 ref={headNameRef} className={`${styles.name} ${styles.nameInHead}`} tabIndex={-1} translate="no" data-text="heading">
             {entry.name}
           </h2>

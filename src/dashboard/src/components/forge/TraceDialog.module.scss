@@ -228,13 +228,6 @@
   padding: 16px max(var(--trace-pad), env(safe-area-inset-right)) 8px max(var(--trace-pad), env(safe-area-inset-left));
 }
 
-.label {
-  margin: 0;
-  font-size: var(--forge-text-meta);
-  line-height: 1.4;
-  color: var(--forge-quiet);
-}
-
 // The outcome is said once, in the ink; its glyph carries the colour.
 .outcome {
   display: flex;
@@ -351,7 +344,6 @@
     column-gap: 24px;
   }
 
-  .label,
   .reason,
   .attempts { grid-column: 1 / -1; }
 
@@ -407,23 +399,18 @@
 
   .nameInHead { display: none; }
 
-  // The label over the outcome sentence, and the attempt keys at its right.
+  // The outcome sentence has the attempt keys at its right.
   .head { grid-template-columns: minmax(0, 1fr) auto; }
-
-  .label {
-    grid-column: 1 / -1;
-    grid-row: 1;
-  }
 
   .outcome {
     grid-column: 1;
-    grid-row: 2;
+    grid-row: 1;
     font-size: var(--font-2xl);
   }
 
   .attempts {
     grid-column: 2;
-    grid-row: 2;
+    grid-row: 1;
     align-self: start;
   }
 

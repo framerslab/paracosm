@@ -7,7 +7,7 @@ import { resolve, dirname, relative, sep } from 'node:path';
 import { pipeline } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
-import { normalizeSimulationConfig, applyDemoCaps, countMissingOrders, DEMO_EXECUTION, type NormalizedSimulationConfig, type SimulationSetupPayload } from '../cli/sim-config.js';
+import { normalizeSimulationConfig, applyDemoCaps, countMissingOrders, DEFAULT_MODELS, DEMO_EXECUTION, DEMO_PROVIDER, MIN_SIMULATION_ACTORS, MAX_SIMULATION_ACTORS, MAX_SIMULATION_TURNS, type NormalizedSimulationConfig, type SimulationSetupPayload } from '../cli/sim-config.js';
 import { runPairSimulations, runForkSimulation, runBatchSimulations, type BroadcastFn, type RunnerOptions } from '../cli/pair-runner.js';
 import {
   handleFetchSeed, handleCompileFromSeed, handleCompileFromSeedStatus,
@@ -15,6 +15,7 @@ import {
   QUICKSTART_SCENARIO_ID_MAX, QUICKSTART_MODELS, defaultModelCalls, endFinishedJobsOf,
   type QuickstartDeps, type QuickstartModelCalls,
 } from './routes/quickstart.js';
+import { resolveEconomicsProfile } from '../runtime/economics/economics-profile.js';
 import { WorldModel } from '../runtime/world-model/index.js';
 import { handleSimulate, type SimulateDeps } from './routes/simulate.js';
 import { compileScenario as compileScenarioReal } from '../engine/compiler/index.js';
@@ -103,6 +104,32 @@ import {
   visitorCookie,
   type LiveRun,
 } from './live-runs.js';
+
+interface HostedScenarioFacts {
+  turns?: number;
+  leaders: string[];
+  summary?: string;
+  fictionNote?: string;
+}
+
+function hostedScenarioFacts(sc: ScenarioPackage): HostedScenarioFacts {
+  const text = (value: unknown) => typeof value === 'string' && value.trim() ? value.trim() : undefined;
+  // Older compiles wrote the first preset's leaders as `actors`; Start runs either.
+  const preset = sc.presets?.[0] as { leaders?: unknown; actors?: unknown } | undefined;
+  const firstPreset = (preset?.leaders ?? preset?.actors) as Array<{ name?: unknown } | null> | undefined;
+  const leaders = Array.isArray(firstPreset)
+    ? firstPreset.map(leader => text(leader?.name)).filter((name): name is string => name !== undefined)
+    : [];
+  const turns = sc.setup?.defaultTurns;
+  const summary = text(sc.labels?.summary);
+  const fictionNote = text(sc.labels?.fictionNote);
+  return {
+    leaders,
+    ...(Number.isSafeInteger(turns) && turns > 0 ? { turns } : {}),
+    ...(summary ? { summary } : {}),
+    ...(fictionNote ? { fictionNote } : {}),
+  };
+}
 
 function projectScenarioForClient(sc: ScenarioPackage) {
   const sources = hookSourcesOf(sc);
@@ -844,6 +871,17 @@ export function buildResultsPayloadFromEventBuffer(eventBuffer: readonly string[
 export function createMarsServer(options: CreateMarsServerOptions = {}): MarsServer {
   const env = options.env ?? process.env;
   const serverMode = resolveServerMode(env);
+  const siteBatchSetting = env.PARACOSM_BATCH_CONCURRENCY?.trim() ?? '';
+  const siteBatch = Number(siteBatchSetting);
+  const hostedBatchConcurrency = serverMode === 'hosted_demo' &&
+    /^\d+$/.test(siteBatchSetting) && Number.isSafeInteger(siteBatch) && siteBatch > 0
+    ? siteBatch
+    : undefined;
+  const defaultBatchConcurrency = resolveEconomicsProfile({
+    provider: DEMO_PROVIDER,
+    baseModels: DEFAULT_MODELS[DEMO_PROVIDER],
+    batchConcurrency: hostedBatchConcurrency,
+  }).batch.maxConcurrency;
   const allowedOrigins = serverMode === 'hosted_demo' ? readAllowedOrigins(env) : new Set<string>();
   const allowedHosts = serverMode === 'local_demo' ? readAllowedHosts(env) : new Set<string>();
   // The one directory run output, imported artifacts, run reads, the
@@ -2696,7 +2734,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     // missing aggregate impl falls through to a 0 count rather than
     // failing the whole list.
     if (req.url === '/scenarios' && req.method === 'GET') {
-      type ScenarioListEntry = {
+      type ScenarioListEntry = Partial<HostedScenarioFacts> & {
         id: string;
         name: string;
         description: string;
@@ -2718,6 +2756,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           source: entry.source,
           compiledAt: meta?.compiledAt,
           seedText: briefFor(id, req, meta?.seedText),
+          ...(serverMode === 'hosted_demo' ? hostedScenarioFacts(sc) : {}),
         });
       }
       // The runnable scenarios this visitor stored in memory, theirs alone.
@@ -2729,6 +2768,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           description: describeCustomScenarioSource('memory'),
           departments: stored.departments?.length || 0,
           source: 'memory',
+          ...(serverMode === 'hosted_demo' ? hostedScenarioFacts(stored) : {}),
         });
       }
       // While the pick re-compiles after a restart, `active` is its id, so
@@ -2940,7 +2980,6 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       // accurate `demo:N` lock labels without hardcoding the number
       // in the client. Lets operators flip the env var + pm2 restart
       // and the UI updates on the next page load without a redeploy.
-      const { DEMO_EXECUTION } = await import('../cli/sim-config.js');
       // `memoryScenarios` is this visitor's own, so the answer varies by cookie.
       res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', ...PER_VISITOR_HEADERS });
       res.end(JSON.stringify({
@@ -2952,7 +2991,12 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           maxTurns: DEMO_EXECUTION.maxTurns,
           maxPopulation: DEMO_EXECUTION.maxPopulation,
           maxActiveDepartments: DEMO_EXECUTION.maxActiveDepartments,
+          ...(hostedDemo ? { maxActors: DEMO_EXECUTION.maxActors } : {}),
         },
+        ...(hostedDemo ? {
+          run: { minActors: MIN_SIMULATION_ACTORS, maxActors: MAX_SIMULATION_ACTORS, maxTurns: MAX_SIMULATION_TURNS },
+          batch: { maxConcurrency: defaultBatchConcurrency },
+        } : {}),
         memoryScenarios: [...(ownMemoryScenarios(req)?.keys() ?? [])],
         keys: {
           openai: !!env.OPENAI_API_KEY,
@@ -4073,7 +4117,16 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       }
       const status = rateLimiter.check(clientIp);
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ip: clientIp, ...status, resetAtISO: new Date(status.resetAt).toISOString() }));
+      res.end(JSON.stringify({
+        ip: clientIp,
+        ...status,
+        resetAtISO: new Date(status.resetAt).toISOString(),
+        ...(serverMode === 'hosted_demo' ? {
+          turns: DEMO_EXECUTION.maxTurns,
+          provider: DEMO_PROVIDER,
+          models: hostedRunModels(),
+        } : {}),
+      }));
       return;
     }
 
@@ -4601,7 +4654,14 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         // back as its cookie and in the answer (runVisitorFor).
         const { visitorId, setCookie: visitorSetCookie } = runVisitorFor(req);
         const setup = config as SimulationSetupPayload;
-        let simConfig = normalizeSimulationConfig(setup, runScenario);
+        const useSiteBatch = hostedBatchConcurrency !== undefined &&
+          Array.isArray(setup.actors) && setup.actors.length > MIN_SIMULATION_ACTORS &&
+          setup.economics?.batchConcurrency == null &&
+          (setup.economics?.profileId ?? 'balanced') === 'balanced';
+        let simConfig = normalizeSimulationConfig(useSiteBatch ? {
+          ...setup,
+          economics: { ...setup.economics, batchConcurrency: hostedBatchConcurrency },
+        } : setup, runScenario);
 
         // Spec 2B: validate fork preconditions against the supplied
         // parent artifact before spinning up the orchestrator.

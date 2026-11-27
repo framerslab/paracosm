@@ -4,6 +4,8 @@
   "version": "1.0.0",
   "engineArchetype": "closed_turn_based_settlement",
   "labels": {
+    "summary": "Two fictional doctors follow a group of patients over two years.",
+    "fictionNote": "Fiction. Not medical advice.",
     "name": "T2D + GLP-1 Care",
     "shortName": "t2d-care",
     "populationNoun": "patients",

@@ -34,7 +34,7 @@ import { LeaderPair } from './LeaderPair';
 import { OtherScenarios } from './OtherScenarios';
 import { RunSize } from './RunSize';
 import { useTellRunTurns } from './runTurns';
-import { FREE_SIZE, sizeMode } from './runSize.helpers';
+import { resolveRunSizes, sizeMode } from './runSize.helpers';
 import { ScenarioLine } from './ScenarioLine';
 import { SharedColonyPanel } from './SharedColonyPanel';
 import { StartBand, type StartRun } from './StartBand';
@@ -59,7 +59,8 @@ function FirstScreen({ onStart, onSeedReady }: Pick<RunFirstScreenProps, 'onStar
   const facts = useServerFacts();
   const scenario = useScenarioContext();
   const scenarioReady = useScenarioReady();
-  const { size, setSize } = useRunSetup();
+  const limits = resolveRunSizes(facts.adminConfig);
+  const { size, setSize } = useRunSetup(limits.bounds);
   // From Start's press until the run opens or fails, the size cannot change,
   // no other scenario loads and the paste form starts no second run.
   const [starting, setStarting] = useState(false);
@@ -73,7 +74,7 @@ function FirstScreen({ onStart, onSeedReady }: Pick<RunFirstScreenProps, 'onStar
   const who = payer(facts, settings.overrides);
   const mode = sizeMode({ payer: who, adminConfig: facts.adminConfig.status, rateLimit: facts.rateLimit.status });
   // A run that is not the visitor's to size is a pair, whatever the address says.
-  const runSize = mode === 'pair' ? FREE_SIZE : size;
+  const runSize = mode === 'pair' ? limits.free : size;
   // The run's turns, for the How it works card, once the scenario has loaded
   // and the server has said whose keys a run uses: the scenario line's rule.
   const payerKnown = who === 'own' || facts.adminConfig.status !== 'loading';
@@ -92,7 +93,7 @@ function FirstScreen({ onStart, onSeedReady }: Pick<RunFirstScreenProps, 'onStar
     <div className={styles.screen} data-testid="run-first-screen">
       <ScenarioLine size={runSize} />
       <SharedColonyPanel size={runSize} />
-      <RunSize size={size} onSize={setSize} locked={starting} />
+      <RunSize size={runSize} limits={limits} mode={mode} onSize={setSize} locked={starting} />
       <FictionalNote />
       <LeaderPair size={runSize} />
       <FirstScreenNotes />
@@ -104,6 +105,7 @@ function FirstScreen({ onStart, onSeedReady }: Pick<RunFirstScreenProps, 'onStar
           variant="pasteOnly"
           locked={starting}
           payer={who}
+          batch={facts.adminConfig.batch?.maxConcurrency}
           atLimit={atLimit}
           onSeedReady={onSeedReady}
           seedText={draft}

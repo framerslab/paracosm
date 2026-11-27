@@ -319,6 +319,71 @@ test.describe('Admin token field @admin', () => {
     }
   });
 
+  test('the status line reads at 15 px or more and 7:1 or more in both looks', async ({ page }) => {
+    const grounds = new Set<string>();
+    await openSettings(page, ADMIN_BASE);
+    for (const look of ['dark', 'light'] as const) {
+      // The look is read from this browser's storage as the page loads, so store it and load again.
+      await page.emulateMedia({ colorScheme: look });
+      await page.evaluate(stored => window.localStorage.setItem('paracosm-theme', stored), look);
+      await openSettings(page, ADMIN_BASE);
+      await tokenStatus(page).scrollIntoViewIfNeeded();
+      await expect(tokenStatus(page)).toHaveText('No token is saved in this browser.');
+
+      // The line's colour against the ground it is drawn on: the nearest opaque
+      // background behind it, with every translucent one between laid over it.
+      const read = await tokenStatus(page).evaluate(element => {
+        const parse = (value: string) => {
+          const parts = (value.match(/[\d.]+/g) ?? []).map(Number);
+          // rgb() and rgba() count channels to 255; color(srgb ...) counts them to 1.
+          const scale = value.startsWith('color(') ? 255 : 1;
+          return {
+            r: (parts[0] ?? 0) * scale,
+            g: (parts[1] ?? 0) * scale,
+            b: (parts[2] ?? 0) * scale,
+            a: parts.length > 3 ? parts[3] : 1,
+          };
+        };
+        type Colour = ReturnType<typeof parse>;
+        const over = (top: Colour, under: Colour): Colour => ({
+          r: top.r * top.a + under.r * (1 - top.a),
+          g: top.g * top.a + under.g * (1 - top.a),
+          b: top.b * top.a + under.b * (1 - top.a),
+          a: 1,
+        });
+        const luminance = (colour: Colour) => {
+          const channel = (value: number) => {
+            const part = value / 255;
+            return part <= 0.03928 ? part / 12.92 : ((part + 0.055) / 1.055) ** 2.4;
+          };
+          return 0.2126 * channel(colour.r) + 0.7152 * channel(colour.g) + 0.0722 * channel(colour.b);
+        };
+        const layers: Colour[] = [];
+        let ground: Colour | null = null;
+        for (let node: Element | null = element; node; node = node.parentElement) {
+          const background = parse(getComputedStyle(node).backgroundColor);
+          if (background.a >= 1) { ground = background; break; }
+          if (background.a > 0) layers.push(background);
+        }
+        if (!ground) throw new Error('no opaque ground behind the status line');
+        for (const layer of layers.reverse()) ground = over(layer, ground);
+        const style = getComputedStyle(element);
+        const text = over(parse(style.color), ground);
+        const [light, dark] = [luminance(text), luminance(ground)].sort((a, b) => b - a);
+        return {
+          px: Number.parseFloat(style.fontSize),
+          ratio: (light + 0.05) / (dark + 0.05),
+          ground: `${Math.round(ground.r)},${Math.round(ground.g)},${Math.round(ground.b)}`,
+        };
+      });
+      grounds.add(read.ground);
+      expect(read.px, `${look}: text size`).toBeGreaterThanOrEqual(15);
+      expect(read.ratio, `${look}: contrast against its ground`).toBeGreaterThanOrEqual(7);
+    }
+    // Two grounds: each look was measured, not one look twice.
+    expect(grounds.size).toBe(2);
+  });
+
   test('where the browser blocks storage the token is held for the page and Save to Disk works', async ({ page }) => {
     // This browser refuses the one key, as a browser with storage blocked refuses every key.
     await page.addInitScript(key => {

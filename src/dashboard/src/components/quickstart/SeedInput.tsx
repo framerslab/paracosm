@@ -14,7 +14,7 @@ import { ScenarioCatalogGrid } from './ScenarioCatalogGrid';
 import { QUICKSTART_TEMPLATES } from './quickstart-templates';
 import { estimateQuickstartCostUSD } from './SeedInput.helpers';
 import type { Payer } from './first-screen/effectiveLaunch';
-import { createDashboardTabHref } from '../../tab-routing';
+import { createSettingsKeyHref } from '../../tab-routing';
 import { ADD_KEY_IN_SETTINGS, GENERATE_AND_RUN, atLimitAfter, atLimitReset } from './first-screen/words';
 import styles from './SeedInput.module.scss';
 
@@ -43,6 +43,12 @@ export interface SeedInputProps {
    * slider, no dollar figure, and the key reads Generate and run.
    */
   payer?: Payer;
+  /**
+   * How many leaders the server runs at once on the default profile
+   * (`batch.maxConcurrency` from GET /admin-config). The time estimate
+   * counts batches of this size, 8 when the server does not say.
+   */
+  batch?: number;
   /**
    * No free run is left today on the host's keys: the at-limit sentences
    * stand above the key, with the reset time when the server said it, and
@@ -87,6 +93,7 @@ export function SeedInput({
   disabled = false,
   variant = 'full',
   payer,
+  batch,
   atLimit = null,
   seedText: heldText,
   onSeedTextChange,
@@ -443,7 +450,7 @@ export function SeedInput({
           aria-label="Number of parallel actors to run"
         />
         <span className={styles.actorCountPreview} aria-live="polite">
-          ~${estimateQuickstartCostUSD(actorCount).toFixed(2)} · {wallTimeEstimate(actorCount)}
+          ~${estimateQuickstartCostUSD(actorCount).toFixed(2)} · {wallTimeEstimate(actorCount, batch)}
         </span>
       </div>
       )}
@@ -481,22 +488,21 @@ export function SeedInput({
 
 /** Settings' API key field, where a visitor adds the key that runs past the day's free runs. */
 function settingsHref(): string {
-  if (typeof window === 'undefined') return '?tab=settings#key-openai';
-  return `${createDashboardTabHref(window.location.href, 'settings')}#key-openai`;
+  if (typeof window === 'undefined') return '?tab=settings&focus=api-key';
+  return createSettingsKeyHref(window.location.href);
 }
 
 /** Rough wall-time estimate for the cost-preview tile. The batch
- *  runner now respects `economics.batch.maxConcurrency` (default 8 on
- *  the balanced profile) so this models 8-actor batches landing
- *  sequentially rather than the old "3 in parallel, ~5 min per batch"
- *  shape. Compile/ground/actor-gen baseline holds at ~2 min. Returns
- *  a "X-Y min" range padded to a 1.5x ceiling. */
-function wallTimeEstimate(count: number): string {
+ *  runner keeps `batchSize` leaders in flight at once (the server's
+ *  default, 8 on the balanced profile), so this models batches of that
+ *  size landing one after another. Compile/ground/actor-gen baseline
+ *  holds at ~2 min. Returns a "X-Y min" range padded to a 1.5x ceiling. */
+function wallTimeEstimate(count: number, batchSize = 8): string {
   if (count <= 0) return '—';
   const baselineMin = 2;
   const perBatchMin = 5;
-  const batchSize = 8;
-  const batches = Math.max(1, Math.ceil(count / batchSize));
+  // A pair runs both leaders at once (runPairSimulations), whatever the batch size.
+  const batches = count <= 2 ? 1 : Math.max(1, Math.ceil(count / batchSize));
   const lo = baselineMin + perBatchMin * batches;
   const hi = Math.ceil(lo * 1.5);
   return `${lo}–${hi} min`;

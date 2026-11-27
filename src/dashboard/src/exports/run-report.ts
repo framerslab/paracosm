@@ -11,11 +11,16 @@ export const exportProvenance = (existing?: RunProvenance | null, verdict?: Reco
   },
 });
 
+/** The report's one AI line under its title, written only when a passage is model-written. */
+const reportNotice = 'Written by AI models in a Paracosm simulation.';
+
 interface Passage {
   heading: string;
   text: string;
   authored: boolean;
 }
+
+const hasAiPassage = (passages: Passage[]): boolean => passages.some(passage => passage.authored);
 
 function verdictPassages(verdict: Record<string, unknown> | null | undefined, actor: string | undefined): Passage[] {
   if (!verdict || verdict.skipped === true) return [];
@@ -73,6 +78,18 @@ function artifactPassages(artifact: RunArtifact): Passage[] {
   return report;
 }
 
+/**
+ * The fields of a record the report counts as model-written. A record with
+ * field-level source keeps its own list; one saved before it gets the list
+ * the report inferred, so run.json says what the report showed.
+ */
+function writtenFields(source: { aiWrittenFields?: string[] }, texts: Record<string, unknown[]>): string[] {
+  if (Array.isArray(source.aiWrittenFields)) return source.aiWrittenFields;
+  return Object.entries(texts)
+    .filter(([field, values]) => values.some(text => isAiWrittenPassage(source, field, text)))
+    .map(([field]) => field);
+}
+
 function escapeHtml(value: string): string {
   return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 }
@@ -81,10 +98,10 @@ export function makeRunReportHtml(artifact: RunArtifact, verdict?: Record<string
   const report = projectReport(artifact, verdict);
   const title = escapeHtml(report.title);
   const sections = report.passages.map(({ heading, text, authored }) =>
-    `<section><h2>${escapeHtml(heading)}</h2><p${authored ? ' data-ai-generated="true"' : ''}>${escapeHtml(text)}${authored ? ' <span>AI-written</span>' : ''}</p></section>`,
+    `<section><h2>${escapeHtml(heading)}</h2><p${authored ? ' data-ai-generated="true"' : ''}>${escapeHtml(text)}</p></section>`,
   );
   const embedded = JSON.stringify({ provenance: report.provenance }).replaceAll('<', '\\u003c');
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${title}</title><meta name="ai-generated-content" content="partial"><script type="application/json" id="paracosm-provenance">${embedded}</script></head><body><main><h1>${title}</h1>${sections.join('')}</main></body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${title}</title><meta name="ai-generated-content" content="partial"><script type="application/json" id="paracosm-provenance">${embedded}</script></head><body><main><h1>${title}</h1>${hasAiPassage(report.passages) ? `<p>${reportNotice}</p>` : ''}${sections.join('')}</main></body></html>`;
 }
 
 export async function makeRunReportPdf(artifact: RunArtifact, verdict?: Record<string, unknown> | null): Promise<Uint8Array<ArrayBuffer>> {
@@ -99,10 +116,21 @@ export async function makeRunReportPdf(artifact: RunArtifact, verdict?: Record<s
     metadata: artifact.metadata,
     provenance: report.provenance,
     ...(report.verdict.length ? { verdict: report.verdict } : {}),
-    decisions: artifact.decisions?.map(({ time, actor, choice, rationale, reasoning, outcome, aiWrittenFields }) =>
-      ({ time, actor, choice, rationale, reasoning, outcome, aiWrittenFields })),
-    specialistNotes: artifact.specialistNotes?.map(({ domain, summary, detail, aiWrittenFields }) =>
-      ({ domain, summary, aiWrittenFields, detail: { recommendedActions: detail?.recommendedActions, risks: detail?.risks } })),
+    decisions: artifact.decisions?.map(decision => {
+      const { time, actor, choice, rationale, reasoning, outcome } = decision;
+      return { time, actor, choice, rationale, reasoning, outcome,
+        aiWrittenFields: writtenFields(decision, { choice: [choice], rationale: [rationale], reasoning: [reasoning] }) };
+    }),
+    specialistNotes: artifact.specialistNotes?.map(note => {
+      const { domain, summary, detail } = note;
+      return { domain, summary,
+        aiWrittenFields: writtenFields(note, {
+          summary: [summary],
+          risks: (detail?.risks ?? []).map(risk => risk.description),
+          recommendedActions: detail?.recommendedActions ?? [],
+        }),
+        detail: { recommendedActions: detail?.recommendedActions, risks: detail?.risks } };
+    }),
   };
   await doc.attach(encoder.encode(JSON.stringify(attachment)), 'run.json', { mimeType: 'application/json' });
 
@@ -151,11 +179,11 @@ export async function makeRunReportPdf(artifact: RunArtifact, verdict?: Record<s
     }
   };
   await write(report.title);
-  for (const { heading, text, authored } of report.passages) {
+  if (hasAiPassage(report.passages)) await write(reportNotice);
+  for (const { heading, text } of report.passages) {
     await draw('');
     await write(heading);
     await write(text);
-    if (authored) await draw('AI-written');
   }
   return new Uint8Array(await doc.save());
 }

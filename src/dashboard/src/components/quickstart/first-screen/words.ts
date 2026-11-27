@@ -258,6 +258,10 @@ export const RUN_END = { verdict: 'Verdict', report: 'Report' } as const;
 /** The notice's first sentence before a run on the host's keys. */
 export const NOTICE_FREE = 'This run is free: we pay for it.';
 
+/** The host's provider and models, when the server identifies the full policy. */
+export const hostRunPolicy = (provider: string, models: string, turns: number): string =>
+  `It runs on ${provider} (${models}) for ${countOf(turns, 'turn', 'turns')}.`;
+
 /** The first sentence of the note that says what the leaders are. */
 export const AI_AGENTS = 'The leaders are AI agents.';
 
@@ -330,6 +334,14 @@ export function teamRunSpoken(o: { scenario?: string; turns?: number }): string 
   return about ? `${WATCH_TEAM_RUN}: ${about}` : WATCH_TEAM_RUN;
 }
 
+/** Said on Watch when the provider refused the key the visitor's run went out on. */
+export const VISITOR_KEY_REFUSED = 'Your API key was refused by its provider.';
+/** The refused-key alert's link, to the Settings field of the provider that refused the key. */
+export const CHECK_KEY_IN_SETTINGS = 'Check it in Settings';
+/** Said in Settings once a provider key is saved in this tab. */
+export const KEY_SAVED_IN_TAB = 'Key saved in this tab.';
+/** The link from Settings back to the Run tab, beside the saved-key line. */
+export const BACK_TO_RUN = 'Back to Run';
 /** The link under the key at the limit, to Settings' API key field. */
 export const ADD_KEY_IN_SETTINGS = 'Add your API key in Settings';
 
@@ -444,6 +456,20 @@ export const CHOOSE_WHEN_ONLINE = 'You are offline. Choose it again when you are
 /** A row's figures: the departments a run of it uses. */
 export const departmentsLine = (n: number): string => countOf(n, 'department', 'departments');
 
+/** A catalog row's turns and departments, omitting figures the server has not supplied. */
+export function catalogFigures(turns?: number, departments?: number, separator = ' · '): string {
+  return [
+    ...(turns === undefined ? [] : [countOf(turns, 'turn', 'turns')]),
+    ...(departments === undefined ? [] : [departmentsLine(departments)]),
+  ].join(separator);
+}
+
+const scenarioLeaderNames = new Intl.ListFormat('en', { type: 'conjunction' });
+
+/** The authored leaders listed in the catalog. */
+export const catalogLeaders = (names: string[]): string =>
+  `Leaders: ${names.length ? scenarioLeaderNames.format(names) : 'written by Paracosm when the run starts'}`;
+
 /** The key on a row of Yours that opens its details, where a compiled scenario is renamed or deleted. */
 export const VIEW_DETAIL = 'View detail';
 export const viewDetailSpoken = (name: string): string => `View detail for ${name}`;
@@ -469,6 +495,5 @@ export const CLEAR_DRAFT = 'Clear your draft';
 /** Under the leaders' heading row. */
 export const NOTE_FICTIONAL = 'Leaders are fictional characters.';
 
-/** Above Start's notice, as two lines. */
+/** Above Start's notice. */
 export const NOTE_AI = 'The leaders are AI agents. Everything they say is written by a language model and can be wrong.';
-export const NOTE_ADULTS = "Under 18? You need a parent's or guardian's permission to use this. Not for children under 13.";
