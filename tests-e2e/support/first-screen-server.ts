@@ -149,6 +149,8 @@ const server = createMarsServer({
     OPENAI_API_KEY: 'sk-first-screen-stand-in',
   },
   maxSimsPerDay: 1,
+  siteAnalyticsIds: { ga: '', clarity: '' },
+  countEventUrl: 'http://127.0.0.1:3465/api/event',
   sessionStore,
   runForkSimulation: async (config, broadcast) => {
     const { actors: [leader], forkFrom, turns } = config;

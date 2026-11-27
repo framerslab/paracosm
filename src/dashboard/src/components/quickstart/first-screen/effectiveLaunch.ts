@@ -211,6 +211,8 @@ export interface LoadedRunOptions {
   onStage?: (stage: 'writing' | 'starting', count?: number) => void;
   /** Called when a request fails. */
   onFailure?: (failure: LaunchFailureInput) => void;
+  /** Called after setup accepts the run, immediately before opening Watch. */
+  onAccepted?: () => void;
 }
 
 /** The scenario's parts a launch is worked out from. */

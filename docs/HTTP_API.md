@@ -14,7 +14,7 @@ For the SDK (`WorldModel.simulate()`, `WorldModel.batch()`, `WorldModel.interven
 - A local server (neither `PARACOSM_HOSTED_DEMO` nor `PARACOSM_PLATFORM_API` set) answers **403 `cross_site_refused`** to any request, the CORS preflight included, sent to a name it does not answer: its `Host` must be a loopback name (`localhost`, `127.0.0.1`, `[::1]`), an IP address, the name `HOST` gives or a name `PARACOSM_ALLOWED_HOSTS` lists (an internationalized name in its ASCII form, `xn--...`), on any port, whatever `Origin` says. It also answers 403 to any request but the preflight whose `Origin` is not a loopback address (any port) or the host the request was sent to, `Origin: null` included. Requests with no `Origin` (same-origin reads, curl, scripts) to such a name pass.
 - `paracosm dashboard` listens on `127.0.0.1` on a local server; set `HOST` (for example `HOST=0.0.0.0` in a container or for a LAN demo) to listen elsewhere. The hosted demo and the platform API mode listen on every interface unless `HOST` is set. To reach a local server by a name while it listens on an address, list the name in `PARACOSM_ALLOWED_HOSTS` (empty by default; comma-separated names, no port). Behind a proxy, also have the proxy pass the browser's `Host` header unchanged, name and port (nginx: `proxy_set_header Host $http_host;`); a `Host` without the page's port works only for a page on its scheme's default port.
 - On the hosted demo, every model call a request makes runs on the caller's own provider key when the request brings one (`apiKey` for OpenAI, `anthropicKey` for Anthropic in a body; `X-API-Key` and `X-Anthropic-Key` on `/simulate`), on the provider that key belongs to (with both keys, on the `provider` the request names; `compile-from-seed`, `generate-actors` and `simulate-intervention` take no `provider` and run such a request on OpenAI). A request with no key of its own runs on the host's keys, always on OpenAI, whatever `provider` it names. No call of either kind falls back to another provider or to another provider's key. A key the server reads as no key (blank, or a masked value such as `sk-...`) is no key, and the dashboard's Settings reads it the same way: such a value leaves its provider and model choices locked and is not posted. This holds for a `/setup` run (its commander, departments, director, reactions, tool review and verdict, and the title of its saved session), `/simulate`, `/compile`, `/chat`, `compile-from-seed` (its draft and its compile), `generate-actors` and `simulate-intervention`. A host-paid `/setup`, `/simulate` or `simulate-intervention` runs on the demo's OpenAI models (the set `applyDemoCaps` gives a `/setup`), whatever `models` or `costPreset` the request names; a host-paid `/compile` compiles on `gpt-5.4-nano`; a host-paid draft and actor call run on `gpt-5.4-mini`. When the host holds no OpenAI key (`OPENAI_API_KEY`), whatever other key it holds, each of these requests with no key of its own answers **503** with the reason, before any of the day's limits counts it and, for `simulate-intervention`, before its world is prepared. A `simulate-intervention` that names no `scenarioId` runs in the Digital Twin's world, which the server compiles from `scenarios/t2d-glp1-protocol.json` and keeps: a kept world is served to every caller, and serving it makes no model call. A request that finds no kept world compiles it as one more of its model calls: on the caller's own key and that key's provider (`gpt-5.4-mini` on OpenAI, `claude-sonnet-4-6` on Anthropic), else on the host's OpenAI key on `gpt-5.4-mini`, with no fallback to another provider. A compile in flight serves only the requests the same key pays for; a request another key pays for compiles on its own key. A compile that fails is not kept: its request answers **503**, or runs in the world another request's compile has left meanwhile, and the next request compiles again. At most 4 compiles of the world run at once, whoever pays: a request past them starts none, waits for them to end and runs in the world they leave, or answers **503** when they leave none. A request that compiles the world, or waits for a compile, answers after that compile and its own run; behind a gateway with a response deadline such a request can be cut, and then the compile goes on, the world it leaves is kept, and the next request runs in it at once. When the hosted server starts it compiles the world on the host's OpenAI key; a host with no OpenAI key compiles nothing at its start and logs one line saying so. A `/chat` with no key of its own on a run started with the caller's own key (a `/setup` run or a Digital Twin run) runs on that run's key and provider; a `/chat` with no key of its own on a host-paid run is host-paid; a `/chat` that brings a key runs on that key, whoever paid for the run. When a finished run is saved, its title comes from one model call, made with the run's own key when the run had one. A local server and the npm package's dashboard keep the routing a request and the environment give them: there the Digital Twin's world is compiled on the server's keys, at its start or for the first request that finds none, whatever key a request brings.
-- On the hosted demo, a `POST /simulate` (where enabled) that names `options.seedUrl` answers **400** (send the seed as `options.seedText`), before the day's run limit counts it, and the compile behind every `/simulate` runs without web search: the host's scraping and search keys would read the seed, and the request's model keys do not pay for them. A Quickstart request on the caller's own key takes none of the host's limits on `generate-actors` and `simulate-intervention` (the Quickstart and run limits of the day, the two-leader cap, the turn cap): `generate-actors` writes the 2 to 300 leaders its `count` asks for. A host-paid `generate-actors` writes at most 2 leaders and a host-paid `simulate-intervention` runs at most the demo's turns, with the daily limiter on or off. A `compile-from-seed` counts against the day's compiles whoever pays for its model, since its research reads the web on the host's search keys.
+- On the hosted demo, a `POST /simulate` (where enabled) that names `options.seedUrl` answers **400** (send the seed as `options.seedText`), before the day's run limit counts it, and the compile behind every `/simulate` runs without web search: the host's scraping and search keys would read the seed, and the request's model keys do not pay for them. A Quickstart request on the caller's own key takes none of the host's limits on `generate-actors` and `simulate-intervention` (the Quickstart and run limits of the day, the two-leader cap, the turn cap): `generate-actors` writes the 2 to 300 leaders its `count` asks for. When the provider refuses the caller's own key, `generate-actors` answers **401** `{ "error": "key_refused" }` with fixed words and none of the provider's. A host-paid `generate-actors` writes at most 2 leaders and a host-paid `simulate-intervention` runs at most the demo's turns, with the daily limiter on or off. A `compile-from-seed` counts against the day's compiles whoever pays for its model, since its research reads the web on the host's search keys.
 - On the hosted demo, a `POST` from a page on another site answers **403 `cross_site_refused`** on `/setup`, `/chat` and `/simulate` (where enabled) without the caller's own provider key; on `/compile` without one or with a `seedText` or `seedUrl` the host's search or scraping keys would read; and on every `/api/quickstart/*` route and `/scenario/switch` always. An `Origin` that `PARACOSM_ALLOWED_ORIGINS` lists counts as the demo's own first; when it lists origins, a request whose `Origin` is any other origin (not `null`) is another site's, whatever `Sec-Fetch-Site` says. Otherwise `Sec-Fetch-Site: cross-site` or `same-site` names another site, and `same-origin` or `none` passes. With no known `Sec-Fetch-Site`, `Origin` must be absent or an HTTP(S) URL whose host and port match `Host`; `Origin: null` is refused. Requests with neither header (curl, scripts) are answered as before. `PARACOSM_ALLOWED_ORIGINS` is hosted-demo-only and empty by default: comma-separated origins (`https://host` or `https://host:port`, also `http:`), with no path, trailing slash, user part or explicit default port, an internationalized name in its ASCII form (`xn--...`). Invalid entries are dropped. The deploy lists the demo's own public origin so its pages pass even when a proxy rewrites `Host`.
 - In `platform_api` mode every `/api/v1/*` route except `GET /api/v1/demo/status` takes the admin credential, however the request target that names it is written: `ADMIN_WRITE=true`, `ADMIN_TOKEN` set, and a matching `X-Admin-Token` header (403 without `ADMIN_WRITE`, 503 without `ADMIN_TOKEN`, 401 without a matching header).
 
@@ -60,7 +60,7 @@ A local server and `platform_api` mode answer every caller that reaches the rout
 | GET    | `/admin-config` | What the dashboard may show: server mode, run caps and bounds, batch concurrency, key presence, the key idle time |
 | GET    | `/scenarios` | The scenarios this visitor can run, with their figures, leaders and labels |
 | POST   | `/forget-keys` | Drop the run and chat agents that hold this visitor's keys |
-| POST   | `/api/event` | Hosted demo only: one page view from the consent bar, forwarded as the public page it names to the site's Plausible count |
+| POST   | `/api/event` | Hosted demo only: one page view from the consent bar, or one named dashboard event, forwarded as the public page it names to the site's Plausible count |
 
 ---
 
@@ -375,24 +375,66 @@ Always reachable (not gated by `paracosmRoutesEnabled`). Lets a public-demo clie
 
 ## `POST /api/event`
 
-Served on the hosted demo alone (`PARACOSM_HOSTED_DEMO=true`); elsewhere the path answers `404`. The consent bar's script (`assets/consent/consent.js`) sends one page view per path while the visitor's count purpose is on, and the server forwards it to the shared Plausible instance with the visitor's `User-Agent` and address, as Plausible's [events API](https://plausible.io/docs/events-api) asks. The address is the connection's, or the `PARACOSM_CLIENT_IP_HEADER` header's value as the rate limits read it. The count limit below keys on it as the other per-client limits do (an IPv6 address by its /64), holds it in memory only, and drops it when its minute ends.
+Served on the hosted demo alone (`PARACOSM_HOSTED_DEMO=true`); elsewhere the path answers `404`. It takes two kinds of body. The consent bar's script (`assets/consent/consent.js`) sends one page view per path, and the dashboard at `/sim` sends one named event when a visitor uses the Run screen or moves between its sections. The server forwards each to the shared Plausible instance with the visitor's `User-Agent` and address, as Plausible's [events API](https://plausible.io/docs/events-api) asks. The address is the connection's, or the `PARACOSM_CLIENT_IP_HEADER` header's value as the rate limits read it. The count limit below keys on it as the other per-client limits do (an IPv6 address by its /64), holds it in memory only, and drops it when its minute ends.
+
+**When a browser sends it.** Both kinds go while the visitor's count purpose is on. The count is on before the visitor answers the consent bar, and stops on Reject all, on the count's own switch, or when the browser sends Global Privacy Control or Do Not Track. The dashboard reads the consent bar's current answer at each action and keeps no queue, so an action made while the count is off is never sent later. A page with no consent bar, which is every self-hosted server, sends neither kind. The same named events reach Google Analytics 4 only after a yes to measure, and Microsoft Clarity, by name alone and only for the events the table marks, after a yes to record. Those two go from the browser to their vendor and never through this route.
 
 **Request body** (any content type; at most 4,096 bytes)
+
+A page view:
 
 ```json
 { "n": "pageview", "u": "/sim" }
 ```
 
-`u` is the page's path. The server forwards one of the site's public pages in its place, on the counted domain: `/` (for `/` and `/index.html`), `/sim` (for `/sim` and any path under it, whose rest is never sent), or a built API docs page under its own path. A query string or fragment never leaves the server. No referrer is sent: the server ignores any other field of the body.
+`u` is the page's path. The server forwards one of the site's public pages in its place, on the counted domain: `/` (for `/` and `/index.html`), `/sim` (for `/sim` and any path under it, whose rest is never sent), or a built API docs page under its own path. A query string or fragment never leaves the server. No referrer is sent: the server ignores any other field of a page view's body.
+
+A named event:
+
+```json
+{ "n": "qs_pair_switch", "u": "/sim", "p": { "to": "2" } }
+```
+
+The body holds exactly `n`, `u` and `p`. `n` is one of the nine names below. `u` is the dashboard's path, `/sim` or a path under it. `p` holds exactly that event's fields, each a string from the field's list, and `{}` for an event with no fields. The server copies those values and nothing else. Another name, a missing, extra or inherited field, a value off its list, free text, a number, an array or `null` in place of a value, a key other than `n`, `u` and `p`, or a malformed path answers `400`, and nothing is forwarded. A path outside the dashboard answers `204`.
+
+| Event | Sent when | Fields and their values | Clarity |
+|-------|-----------|-------------------------|---------|
+| `qs_view` | The Run screen's input shows, once its state is known | `state`: `ready`, `no_run_left`. `entry`: `direct`, `from_landing`, `from_tab` | Yes |
+| `qs_start` | An enabled Start takes a press | `picked`: `yes`, `no`. `key`: `host`, `own`, `server`. `size`: `2`, `3_8`, `9_24`, `25_100`, `101_300` | Yes |
+| `run_started` | A launch from the Run screen opens Watch | `key`: `host`, `own` | Yes |
+| `run_failed` | That launch ends before its run opens | `reason`: `no_run_left`, `capacity`, `network`, `key_refused`, `other` | Yes |
+| `qs_how_open` | The header opens How it works | none | No |
+| `qs_no_run_left_view` | The Start band shows the daily limit | none | Yes |
+| `qs_no_run_left_action` | At that limit, a visitor picks the offered replay or Settings | `action`: `replay_last`, `add_key` | Yes |
+| `qs_pair_switch` | The narrow layout shows the other leader of a pair | `to`: `1`, `2` | No |
+| `tab_change` | A visitor picks a different section in the header's section row or its More menu; links inside a page that open another section are not counted | `to`: `quickstart`, `sim`, `reports`, `studio`, `viz`, `chat`, `library`, `settings`, `about` | No |
+
+`size` gives the number of leaders as a range: 2, 3 to 8, 9 to 24, 25 to 100, or 101 to 300.
+
+**What the server forwards**
+
+A page view goes to the instance as its name and its public page:
+
+```json
+{ "name": "pageview", "url": "https://paracosm.agentos.sh/sim", "domain": "paracosm.agentos.sh" }
+```
+
+A named event goes with its copied fields as `props`, and always under the dashboard's public address:
+
+```json
+{ "name": "qs_pair_switch", "url": "https://paracosm.agentos.sh/sim", "domain": "paracosm.agentos.sh", "props": { "to": "2" } }
+```
+
+The rest of the path, any query string and any fragment stay on the server, and no referrer or cookie is sent. The request to the instance carries the visitor's `User-Agent` and an `X-Forwarded-For` header with the address.
 
 **Responses**
 
-- `202`: the instance took the page view
-- `204`: nothing was forwarded, because the request sent a privacy signal (`Sec-GPC: 1` or `DNT: 1`), came from a page on another site (the rule in "Base URL and gating"), or named a path that is no page of the site
-- `400 invalid_event`: the body is not a page view of a path, or the request has no `User-Agent`
+- `202`: the instance took the page view or event
+- `204`: nothing was forwarded, because the request sent a privacy signal (`Sec-GPC: 1` or `DNT: 1`), came from a page on another site (the rule in "Base URL and gating"), or named a path that is no page of the site (for a named event, a path outside the dashboard)
+- `400 invalid_event`: the body is neither a page view of a path nor a named event that passes the checks above, or the request has no `User-Agent`
 - `405`: a method other than `POST`
 - `413 body_too_large`: the body is over 4,096 bytes
-- `429 too_many_events`: the address (an IPv6 address by its /64) has sent 120 page views in its current minute, or 32 forwards are open at once; nothing is forwarded, and `Retry-After` is 60 seconds
+- `429 too_many_events`: the address (an IPv6 address by its /64) has sent 120 page views and named events together in its current minute, or 32 forwards are open at once across all visitors; nothing is forwarded, and `Retry-After` is 60 seconds
 - `502`: the instance did not take it (refused, unreachable or slower than 5 seconds)
 
 ## `GET /rate-limit`

@@ -14,7 +14,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createMarsServer } from '../../src/server/server-app.js';
-import { CountEventLimit, countEventFrom, parseSiteAnalyticsIds, readSiteAnalyticsIds } from '../../src/server/site-analytics.js';
+import { CountEventLimit, countedEvent, parseSiteAnalyticsIds, readSiteAnalyticsIds } from '../../src/server/site-analytics.js';
 
 test('only an id of its vendor\'s shape reaches the bar', () => {
   assert.deepEqual(parseSiteAnalyticsIds({ ga: 'G-AB12CD34EF', clarity: 'abc123xyz' }), { ga: 'G-AB12CD34EF', clarity: 'abc123xyz' });
@@ -39,18 +39,18 @@ test('a build without site-analytics.json, or with one that does not parse, give
 });
 
 test('a page view is forwarded as its public page and nothing of the referring page', () => {
-  assert.deepEqual(countEventFrom(JSON.stringify({ n: 'pageview', u: '/sim', r: 'https://news.example.com/item?id=7#c' })), {
+  assert.deepEqual(countedEvent(JSON.stringify({ n: 'pageview', u: '/sim', r: 'https://news.example.com/item?id=7#c' })), {
     name: 'pageview',
     url: 'https://paracosm.agentos.sh/sim',
     domain: 'paracosm.agentos.sh',
   });
   // A query or fragment in the path is dropped; dot segments resolve.
-  assert.equal(countEventFrom(JSON.stringify({ n: 'pageview', u: '/docs/../sim?token=secret#x' }))?.url, 'https://paracosm.agentos.sh/sim');
+  assert.equal(countedEvent(JSON.stringify({ n: 'pageview', u: '/docs/../sim?token=secret#x' }))?.url, 'https://paracosm.agentos.sh/sim');
 });
 
 test('a page view names one of the site\'s public pages, never the rest of a path', () => {
   const url = (u: string, isDocsPage?: (path: string) => boolean) => {
-    const event = countEventFrom(JSON.stringify({ n: 'pageview', u }), isDocsPage);
+    const event = countedEvent(JSON.stringify({ n: 'pageview', u }), isDocsPage);
     return typeof event === 'object' && event !== null ? event.url : event;
   };
   assert.equal(url('/'), 'https://paracosm.agentos.sh/');
@@ -79,7 +79,7 @@ test('no referrer reaches the instance, whatever the page sends', () => {
     '',
     'javascript:alert(1)',
   ]) {
-    const event = countEventFrom(JSON.stringify({ n: 'pageview', u: '/', r }));
+    const event = countedEvent(JSON.stringify({ n: 'pageview', u: '/', r }));
     assert.ok(typeof event === 'object' && event !== null, r);
     assert.equal('referrer' in event, false, r);
   }
@@ -109,12 +109,13 @@ test('a body that is not a page view of this site forwards nothing', () => {
     JSON.stringify({ n: 'pageview', u: '//elsewhere.example/path' }),
     JSON.stringify({ n: 'pageview', u: `/${'a'.repeat(600)}` }),
   ]) {
-    assert.equal(countEventFrom(body), null, body.slice(0, 60));
+    assert.equal(countedEvent(body), null, body.slice(0, 60));
   }
 });
 
 interface Received {
   body: Record<string, unknown>;
+  headers: import('node:http').IncomingHttpHeaders;
   userAgent: string | undefined;
   forwardedFor: string | undefined;
 }
@@ -139,7 +140,7 @@ before(async () => {
     req.on('data', chunk => { raw += chunk; });
     req.on('end', () => {
       const header = (name: string) => (typeof req.headers[name] === 'string' ? req.headers[name] as string : undefined);
-      received.push({ body: JSON.parse(raw) as Record<string, unknown>, userAgent: header('user-agent'), forwardedFor: header('x-forwarded-for') });
+      received.push({ body: JSON.parse(raw) as Record<string, unknown>, headers: req.headers, userAgent: header('user-agent'), forwardedFor: header('x-forwarded-for') });
       res.writeHead(202);
       res.end('ok');
     });
@@ -182,11 +183,93 @@ test('POST /api/event on the hosted demo forwards one page view with the visitor
   assert.equal(res.status, 202);
   assert.equal(res.headers.get('cache-control'), 'no-store');
   assert.equal(received.length, 1);
-  assert.deepEqual(received[0], {
+  const { headers, ...event } = received[0];
+  assert.equal(headers.referer, undefined);
+  assert.deepEqual(event, {
     body: { name: 'pageview', url: 'https://paracosm.agentos.sh/sim', domain: 'paracosm.agentos.sh' },
     userAgent: 'count-test-browser',
     forwardedFor: '198.51.100.7',
   });
+});
+
+const namedEvents = [
+  ['qs_view', { state: 'ready', entry: 'direct' }],
+  ['qs_start', { picked: 'no', key: 'host', size: '2' }],
+  ['run_started', { key: 'own' }],
+  ['run_failed', { reason: 'capacity' }],
+  ['qs_how_open', {}],
+  ['qs_no_run_left_view', {}],
+  ['qs_no_run_left_action', { action: 'replay_last' }],
+  ['qs_pair_switch', { to: '2' }],
+  ['tab_change', { to: 'settings' }],
+] as const;
+const pairEvent = { n: 'qs_pair_switch', u: '/sim', p: { to: '2' } };
+
+test('POST /api/event forwards every approved event with only its public page and fixed properties', async () => {
+  received.length = 0;
+  for (const [n, p] of namedEvents) {
+    const res = await post(site, JSON.stringify({ n, u: '/sim/private-marker?input=typed-marker#fragment-marker', p }), {
+      'X-Forwarded-For': '192.0.2.17',
+      Referer: 'https://example.test/referrer-marker',
+      Cookie: 'visitor=cookie-marker',
+    });
+    assert.equal(res.status, 202, n);
+    const entry = received.at(-1);
+    assert.ok(entry);
+    assert.deepEqual(entry.body, {
+      name: n,
+      url: 'https://paracosm.agentos.sh/sim',
+      domain: 'paracosm.agentos.sh',
+      props: p,
+    });
+    assert.equal(entry.userAgent, 'count-test-browser');
+    assert.equal(entry.forwardedFor, '192.0.2.17');
+    assert.equal(entry.headers.referer, undefined);
+    assert.equal(entry.headers.cookie, undefined);
+    assert.doesNotMatch(JSON.stringify(entry), /(?:private|typed|fragment|referrer|cookie)-marker/);
+  }
+  assert.equal(received.length, namedEvents.length);
+});
+
+test('POST /api/event rejects names, envelopes, paths and fields outside the named event contract', async () => {
+  received.length = 0;
+  const invalid = [
+    { ...pairEvent, n: 'unknown' },
+    { ...pairEvent, n: 'constructor' },
+    { ...pairEvent, r: 'referrer-marker' },
+    { n: pairEvent.n, u: pairEvent.u },
+    { ...pairEvent, p: { to: '2', constructor: 'extra' } },
+    { ...pairEvent, p: {} },
+    { ...pairEvent, p: { action: 'add_key' } },
+    { ...pairEvent, p: { to: '3' } },
+    { ...pairEvent, p: { to: 'typed-marker' } },
+    { ...pairEvent, p: { to: 2 } },
+    { ...pairEvent, p: ['2'] },
+    { ...pairEvent, p: null },
+    { ...pairEvent, u: 'https://example.test/sim' },
+    { ...pairEvent, u: '//example.test/sim' },
+    { ...pairEvent, u: '/%zz/sim' },
+    [pairEvent],
+    null,
+  ];
+  for (const body of invalid) {
+    assert.equal((await post(site, JSON.stringify(body))).status, 400, JSON.stringify(body));
+  }
+  assert.deepEqual(received, []);
+});
+
+test('named events share the count route privacy, page and request limits', async () => {
+  received.length = 0;
+  const body = JSON.stringify(pairEvent);
+  for (const headers of [{ DNT: '1' }, { 'Sec-GPC': '1' }, { 'Sec-Fetch-Site': 'cross-site' }]) {
+    assert.equal((await post(site, body, headers as Record<string, string>)).status, 204);
+  }
+  for (const u of ['/', '/another-page']) {
+    assert.equal((await post(site, JSON.stringify({ ...pairEvent, u }))).status, 204);
+  }
+  assert.equal((await post(site, body.padEnd(4097))).status, 413);
+  assert.equal((await post(localSite, body)).status, 404);
+  assert.deepEqual(received, []);
 });
 
 test('POST /api/event forwards nothing under a privacy signal, from another site, or for a body that is not a page view', async () => {
@@ -223,20 +306,23 @@ test('POST /api/event answers 502 when the instance does not take the page view'
   }
 });
 
-test('POST /api/event forwards at most 120 page views a minute from one address, and answers 429 past it', async () => {
+test('POST /api/event shares a limit of 120 page views and named events a minute from one address, and answers 429 past it', async () => {
   received.length = 0;
   const pageview = JSON.stringify({ n: 'pageview', u: '/' });
   // Direct calls with no Origin and no fetch metadata, as a script would send them.
-  const send = () => fetch(`${site}/api/event`, {
+  const send = (body: string) => fetch(`${site}/api/event`, {
     method: 'POST',
     headers: { 'User-Agent': 'count-flood', 'X-Forwarded-For': '203.0.113.9' },
-    body: pageview,
+    body,
   });
   const answers: number[] = [];
-  for (let i = 0; i < 125; i++) answers.push((await send()).status);
+  const named = JSON.stringify(pairEvent);
+  for (let i = 0; i < 125; i++) answers.push((await send(i % 2 === 0 ? pageview : named)).status);
   assert.deepEqual([...new Set(answers.slice(0, 120))], [202]);
   assert.deepEqual([...new Set(answers.slice(120))], [429]);
-  assert.equal(received.filter(event => event.userAgent === 'count-flood').length, 120);
+  const counted = received.filter(event => event.userAgent === 'count-flood');
+  assert.equal(counted.length, 120);
+  assert.equal(counted.filter(event => event.body.name === 'qs_pair_switch').length, 60);
 
   // Another address still counts.
   const other = await post(site, pageview, { 'X-Forwarded-For': '203.0.113.10' });

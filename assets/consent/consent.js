@@ -6,8 +6,9 @@
  * JSON element #paracosm-consent-config) to the pages it sends in
  * hosted_demo mode (src/server/site-analytics.ts). Three purposes:
  *   count    Plausible, cookieless, on until the visitor turns it off. Page
- *            views go to this site's own POST /api/event, which forwards
- *            the page's public address and no referrer.
+ *            views and the dashboard's named events go to this site's own
+ *            POST /api/event, which forwards the page's public address and
+ *            no referrer.
  *   measure  Google Analytics 4, off until the visitor turns it on.
  *   record   Microsoft Clarity, off until the visitor turns it on.
  * The bar offers only the purposes whose tool this build configures. No
@@ -96,7 +97,7 @@
     notSaved: 'Your choice could not be saved on this device, so it holds only until you leave this page.',
     rows: [
       { id: 'necessary', name: 'Strictly necessary', vendor: '', text: 'The dashboard’s two cookies, which keep your scenario pick and your runs with this browser.' },
-      { id: 'count', name: 'Count visits', vendor: 'Plausible', text: 'Counts page views with no cookie. Our server holds your IP address in memory for one minute to limit repeated counts. Plausible receives your browser’s full User-Agent and your IP address, uses them for a daily visitor identifier, your browser and device and an approximate location, and stores neither.' },
+      { id: 'count', name: 'Count visits', vendor: 'Plausible', text: 'Counts page views and actions on the dashboard, with no cookie. Our server holds your IP address in memory for one minute to limit repeated counts. Plausible receives your browser’s full User-Agent and your IP address, uses them for a daily visitor identifier, your browser and device and an approximate location, and stores neither.' },
       { id: 'measure', name: 'Measure use', vendor: 'Google Analytics', text: 'Sets cookies that tell visits apart, to show how each page is used. Google signals and ad personalization stay off.' },
       { id: 'record', name: 'Record sessions', vendor: 'Microsoft Clarity', text: 'Records clicks and scrolling as replays and heatmaps, with the page’s text and images masked.' },
     ].filter(function (row) { return row.id === 'necessary' || RUNS[row.id]; }),
@@ -250,16 +251,21 @@
 
   /*
    * What the dashboard reads before it sends an event of its own: whether a
-   * purpose has the visitor's yes on this page now. Measure and record follow
-   * what runs, so a withdrawal answers no at once; the count, which takes
-   * page views alone, and any purpose the bar does not offer answer no.
+   * purpose is allowed on this page now. Measure and record also depend on
+   * whether their vendors are active. Count follows the effective choice
+   * after the bar has read and validated the saved answer.
    * Other code on the page can neither replace it nor change its answer.
    */
   try {
     Object.defineProperty(window, 'paracosmConsent', {
       value: Object.freeze({
+        get ready() { return ready; },
         allows: function (purpose) {
-          return purpose === 'measure' ? active.measure : purpose === 'record' ? active.record : false;
+          if (!ready) return false;
+          var purposes = effective();
+          if (purpose === 'count') return purposes.count;
+          if (purpose === 'measure' || purpose === 'record') return purposes[purpose] && active[purpose];
+          return false;
         },
       }),
       configurable: false,
@@ -698,11 +704,13 @@
   });
 
   function start() {
+    if (ready) return;
     ready = true;
     var controls = document.querySelectorAll('[data-consent-open][hidden]');
     for (var i = 0; i < controls.length; i++) controls[i].hidden = false;
     apply();
     if (!signal && !readAnswer()) show(false);
+    window.dispatchEvent(new Event('paracosm:consent-ready'));
   }
 
   digestWords().then(function (hash) {

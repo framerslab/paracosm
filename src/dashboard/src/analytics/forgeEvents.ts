@@ -7,8 +7,7 @@
  * event goes to Google Analytics (`gtag('event', name, fields)`) while the
  * measure purpose has a yes, and to Microsoft Clarity
  * (`clarity('event', name)`, its name alone) while the record purpose has
- * one. The count purpose takes page views alone, so no event goes to
- * Plausible. A page with no consent script, a purpose with no yes, or a
+ * one. Forge events use only measure and record. A page with no consent script, a purpose with no yes, or a
  * vendor whose function is not on the page sends nothing.
  *
  * Each event carries only the fields its type names, each one of a fixed
@@ -16,6 +15,7 @@
  * reaches a vendor, even from a caller that passes more.
  */
 import { STATIONS, type StationId } from '../components/forge/forgeLine';
+import { deliverEvent } from './send';
 
 /** Where the forged toolbox was opened: the Sim footer, Reports' page, or the Viz tab's FORGE mode. */
 export type ToolboxOpenFrom = 'sim' | 'reports' | 'viz';
@@ -62,47 +62,13 @@ export function actorRange(chosen: number): ActorRange | null {
   return '25+';
 }
 
-/** What the consent script and the two vendors put on the page. */
-interface AnalyticsPage {
-  paracosmConsent?: { allows?: (purpose: string) => unknown };
-  gtag?: (...args: unknown[]) => void;
-  clarity?: (...args: unknown[]) => void;
-}
-
-/** Whether the visitor said yes to a purpose; no on a page with no consent script or an answer it cannot read. */
-function allows(page: AnalyticsPage, purpose: 'measure' | 'record'): boolean {
-  try {
-    const consent = page.paracosmConsent;
-    return typeof consent?.allows === 'function' && consent.allows(purpose) === true;
-  } catch {
-    return false;
-  }
-}
-
-/** The page's address with no query or fragment, or null where the page has none to read. */
-function pageLocation(w: Window): string | null {
-  try {
-    const { origin, pathname } = w.location;
-    return typeof origin === 'string' && typeof pathname === 'string' ? origin + pathname : null;
-  } catch {
-    return null;
-  }
-}
-
 /**
  * Sends one forge view event to the vendors whose purpose has the visitor's
  * yes. It never throws: an analytics failure leaves the page as it was.
  */
 export function sendForgeEvent(event: ForgeEvent, w?: Window): void {
-  const target = w ?? (typeof window === 'undefined' ? undefined : window);
-  if (!target) return;
-  const page = target as unknown as AnalyticsPage;
+  if (!Object.hasOwn(FIELDS, event.name)) return;
   const fields = FIELDS[event.name];
-  if (!fields) return;
-  const measure = allows(page, 'measure');
-  const record = allows(page, 'record');
-  if (!measure && !record) return;
-
   const sent: Record<string, string> = {};
   const given = event as unknown as Record<string, unknown>;
   for (const [field, values] of Object.entries(fields)) {
@@ -111,23 +77,5 @@ export function sendForgeEvent(event: ForgeEvent, w?: Window): void {
     if (typeof value === 'string' && values.includes(value)) sent[field] = value;
   }
 
-  if (measure && typeof page.gtag === 'function') {
-    // Google's tag sends the page's address with every event unless the event
-    // names one, and the address can hold a search typed into Find a tool:
-    // the event names the page by its address with no query, as the page
-    // view does.
-    const where = pageLocation(target);
-    try {
-      page.gtag('event', event.name, where === null ? sent : { ...sent, page_location: where });
-    } catch {
-      // Google's tag refused the event; the page carries on.
-    }
-  }
-  if (record && typeof page.clarity === 'function') {
-    try {
-      page.clarity('event', event.name);
-    } catch {
-      // Clarity refused the event; the page carries on.
-    }
-  }
+  deliverEvent({ name: event.name, fields: sent, count: false, record: true }, w);
 }

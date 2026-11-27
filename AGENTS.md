@@ -17,6 +17,7 @@ Instructions for coding agents working in this repository. People contributing b
 - `src/cli/`: the command entry points and scenario configuration helpers
 - `src/server/`: the HTTP server behind the dashboard: routes, stores, services
 - `src/dashboard/`: the Vite and React dashboard, a separate npm project with its own `package.json` and lockfile
+- `src/analytics/`: the fixed contract for the dashboard's named events, read by the dashboard's sender and by the server's count route
 - `tests/`: `node:test` suites laid out like `src/`; `tests-e2e/`: Playwright specs for the dashboard
 - `scenarios/`: built-in scenario JSON; `schema/`: JSON schemas for RunArtifact and stream events; `config/`: example actor configuration
 - `scripts/`: the boundary check, the doc-example check, the changelog generator and schema exporters
@@ -55,7 +56,7 @@ Available scripts that CI does not run: `npm run test:e2e` (Playwright; `npm run
 ## Conventions
 
 - `src/engine/` never imports from `src/runtime/`; the one exception is the public alias `src/engine/digital-twin/index.ts`. `scripts/check-engine-runtime-boundary.mjs` enforces it and `npm test` runs it first.
-- Each of the seven top-level directories under `src/` owns one job. A new one needs a reason in the pull request and a line in `docs/architecture/INTERNAL_LAYOUT.md`.
+- Each of the eight top-level directories under `src/` owns one job. A new one needs a reason in the pull request and a line in `docs/architecture/INTERNAL_LAYOUT.md`.
 - The public entry points are the `exports` map of `package.json` (`.`, `./core`, `./compiler`, `./schema`, `./swarm`, `./digital-twin`). A new public module needs an entry there.
 - Every structured model call in a turn (director, departments, commander, reactions, verdict) is validated with Zod and retried with feedback; the response schemas live in `src/runtime/validators/`.
 - Tests: one `*.test.ts` per module under test, in `tests/` or next to the file; tests that call a live model run only behind an environment flag such as `RUN_LIVE_CHAT_TEST=1`, so the default suite needs no API keys. Integration tests for behavior with an observable surface, unit tests for pure logic and regression pins, no filler tests.
