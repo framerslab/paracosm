@@ -4,6 +4,7 @@
   "version": "3.0.0",
   "engineArchetype": "closed_turn_based_settlement",
   "labels": {
+    "summary": "Two leaders decide how a Mars colony uses its people and supplies.",
     "name": "Mars Genesis",
     "shortName": "mars",
     "populationNoun": "colonists",

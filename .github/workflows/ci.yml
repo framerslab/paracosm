@@ -211,6 +211,10 @@ jobs:
         if: ${{ !cancelled() && steps.install-playwright.outcome == 'success' }}
         run: npx playwright test tests-e2e/specs/ai-marks.spec.ts --project=chromium-desktop
 
+      - name: Settings key field end-to-end test
+        if: ${{ !cancelled() && steps.install-playwright.outcome == 'success' }}
+        run: npx playwright test tests-e2e/specs/settings-key-field.spec.ts --project=chromium-desktop
+
       # The pictures that spec takes of the Run tab's first screen at each
       # width it checks, in both looks: ready, loading, did not load, offline.
       - name: Upload the first screen pictures

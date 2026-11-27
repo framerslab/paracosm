@@ -15,9 +15,8 @@
  * @module paracosm/dashboard/quickstart/first-screen/RunSize
  */
 import { useId, useState, type ChangeEvent, type KeyboardEvent } from 'react';
-import { payer, readLaunchSettings, safeLocalStorage } from './effectiveLaunch';
 import { SectionMark, WarningGlyph } from './marks';
-import { FREE_SIZE, RUN_SIZE_BOUNDS, clampSize, sizeMode, stepSize } from './runSize.helpers';
+import { clampSize, stepSize, type SizeMode, type resolveRunSizes } from './runSize.helpers';
 import { useServerFacts } from './useServerFacts';
 import {
   FEWER_LEADERS,
@@ -37,6 +36,8 @@ export interface RunSizeProps {
   /** How many leaders the visitor chose, as the address holds it. */
   size: number;
   onSize: (size: number) => void;
+  limits: ReturnType<typeof resolveRunSizes>;
+  mode: SizeMode;
   /** True while the run's leaders are written or the run starts: the size cannot change. */
   locked?: boolean;
 }
@@ -51,7 +52,7 @@ function StepGlyph({ plus }: { plus?: boolean }) {
   );
 }
 
-export function RunSize({ size, onSize, locked = false }: RunSizeProps) {
+export function RunSize({ size, onSize, limits, mode, locked = false }: RunSizeProps) {
   const facts = useServerFacts();
   const boundId = useId();
   const refusalId = useId();
@@ -59,11 +60,7 @@ export function RunSize({ size, onSize, locked = false }: RunSizeProps) {
   const [typed, setTyped] = useState<string | null>(null);
   const [refused, setRefused] = useState(false);
 
-  // Read on each render: the Settings tab may have saved a key since.
-  const settings = readLaunchSettings(safeLocalStorage());
-  const who = payer(facts, settings.overrides);
-  const mode = sizeMode({ payer: who, adminConfig: facts.adminConfig.status, rateLimit: facts.rateLimit.status });
-  const bounds = RUN_SIZE_BOUNDS;
+  const { bounds, free, showFreeLimits } = limits;
 
   const mark = (
     <p className={styles.mark} data-testid="leaders-mark">
@@ -73,22 +70,21 @@ export function RunSize({ size, onSize, locked = false }: RunSizeProps) {
   );
 
   if (mode !== 'control') {
-    const shown = mode === 'pair' ? FREE_SIZE : size;
     // The free run's line is the hosted demo's; while the server has not said which it is, its place is held.
-    const hostPaid = who === 'host';
-    const unknown = mode === 'pair' && !hostPaid && facts.adminConfig.status === 'loading';
+    const hostPaid = mode === 'pair' && facts.adminConfig.hostedDemo === true;
+    const unknown = mode === 'pair' && facts.adminConfig.status === 'loading';
     return (
       <div className={styles.size} data-testid="run-size">
         <div className={styles.row} data-row="leaders heading">
           {mark}
-          <p className={styles.value} data-testid="run-size-value">{leadersCount(shown)}</p>
+          <p className={styles.value} data-testid="run-size-value">{leadersCount(size)}</p>
         </div>
-        {hostPaid && (
-          <p className={styles.line} data-testid="run-size-line">{freeSizeLine({ free: FREE_SIZE, max: bounds.max })}</p>
+        {hostPaid && showFreeLimits && (
+          <p className={styles.line} data-testid="run-size-line">{freeSizeLine({ free, max: bounds.max })}</p>
         )}
         {unknown && (
           <p className={styles.line} aria-hidden="true">
-            <span className={styles.shape} data-shape>{freeSizeLine({ free: FREE_SIZE, max: bounds.max })}</span>
+            <span className={styles.shape} data-shape>{freeSizeLine({ free, max: bounds.max })}</span>
           </p>
         )}
       </div>

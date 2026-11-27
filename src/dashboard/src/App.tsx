@@ -64,6 +64,7 @@ import { HowItWorksCard } from './components/quickstart/first-screen/HowItWorksC
 import { RunTurnsProvider } from './components/quickstart/first-screen/runTurns';
 import {
   createDashboardTabHref,
+  createSettingsKeyHref,
   createToolLogHref,
   DASHBOARD_TABS,
   getDashboardTabAndSubFromHref,
@@ -141,7 +142,7 @@ export function useDashboardNavigation() {
   return ctx;
 }
 
-const RunStartContext = createContext<(runKey?: string) => void>(() => {});
+const RunStartContext = createContext<(runKey?: string, usedVisitorKey?: boolean) => void>(() => {});
 /**
  * What a Run control calls once the server has taken its run (the /setup
  * answer carries a redirect, or its status is ok): App leaves the Digital
@@ -231,7 +232,8 @@ function AppContent() {
   const runClearedRef = useRef<(runKey: string) => void>(() => {});
   const handleRunCleared = useCallback((runKey: string) => runClearedRef.current(runKey), []);
   const sse = useSSE({ replaySessionId, scenarioId: scenarioReady ? scenario.id : null, onRunCleared: handleRunCleared });
-  const [launchedRunKey, setLaunchedRunKey] = useState(readRunLaunchHandoff);
+  const [launchedRun, setLaunchedRun] = useState(readRunLaunchHandoff);
+  const launchedRunKey = launchedRun?.runKey ?? null;
   useEffect(() => {
     if (launchedRunKey !== null) clearRunLaunchHandoff(launchedRunKey);
   }, [launchedRunKey]);
@@ -438,9 +440,9 @@ function AppContent() {
 
   // An accepted launch takes the visitor from saved playback to their
   // own live stream. Other tab changes keep the replay address intact.
-  const showNewRun = useCallback((runKey?: string) => {
+  const showNewRun = useCallback((runKey?: string, usedVisitorKey = false) => {
     leaveDigitalTwin();
-    setLaunchedRunKey(runKey ?? null);
+    setLaunchedRun(runKey ? { runKey, usedVisitorKey } : null);
     const url = new URL(window.location.href);
     if (!url.searchParams.has('replay')) return;
     url.searchParams.delete('replay');
@@ -551,7 +553,7 @@ function AppContent() {
     leaveDigitalTwin();
     sse.reset();
     setUserTriggeredRun(false);
-    setLaunchedRunKey(null);
+    setLaunchedRun(null);
     toast('info', 'Local data cleared', 'In-browser caches wiped. Server-stored runs are unchanged.');
     setActiveTab('settings');
   }, [persistence, sse, toast, leaveDigitalTwin]);
@@ -1019,6 +1021,11 @@ function AppContent() {
   const stoppedArtifact = interventionArtifact as (RunArtifact & { aborted?: unknown; providerError?: unknown }) | null;
   const twinStopped = stoppedArtifact !== null && (stoppedArtifact.aborted === true || !!stoppedArtifact.providerError);
   const runExists = sse.events.length > 0 || sse.isComplete || launching || showsDigitalTwin;
+  const canRecoverVisitorKey = activeTab === 'sim'
+    && replaySessionId === null
+    && launchedRun?.usedVisitorKey === true
+    && launchedRun.runKey === sse.runKey
+    && sse.providerError?.kind === 'auth';
   // The status bar's spend is the run its progress shows: a Digital Twin's
   // own when the page shows one.
   const shownRunCost = (showsDigitalTwin ? interventionState : gameState).cost;
@@ -1040,6 +1047,7 @@ function AppContent() {
           {sse.providerError && !bannerDismissed ? (
             <ProviderErrorBanner
               providerError={sse.providerError}
+              settingsKeyHref={canRecoverVisitorKey ? createSettingsKeyHref(window.location.href, sse.providerError?.provider) : undefined}
               onDismiss={() => setBannerDismissed(true)}
             />
           ) : null}
@@ -1249,7 +1257,7 @@ function AppContent() {
                       leaveDigitalTwin();
                       void sse.reset();
                       setUserTriggeredRun(false);
-                      setLaunchedRunKey(null);
+                      setLaunchedRun(null);
                     },
                   }} />
                 </section>

@@ -5,9 +5,11 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync, utimesSync, existsSync }
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildResultsPayloadFromEventBuffer, createMarsServer } from '../../src/server/server-app.js';
-import type { NormalizedSimulationConfig } from '../../src/cli/sim-config.js';
+import { DEFAULT_MODELS, DEMO_EXECUTION, type NormalizedSimulationConfig } from '../../src/cli/sim-config.js';
 import type { RunRecord } from '../../src/server/services/run-record.js';
 import type { RunHistoryStore } from '../../src/server/stores/run-history.js';
+import { resolveEconomicsProfile } from '../../src/runtime/economics/economics-profile.js';
+import { mars, settingsBody, waitFor, withVisitors } from './helpers/run-server.js';
 import { visitor } from './helpers/visitor.js';
 
 // A server that names no APP_DIR keeps its state under it: the runs it holds
@@ -124,6 +126,65 @@ const draftScenario = {
     { id: 'operations', label: 'Operations' },
   ],
 };
+
+test('hosted admin settings match the runner', async () => {
+  const defaultBatch = resolveEconomicsProfile({ provider: 'openai', baseModels: DEFAULT_MODELS.openai }).batch.maxConcurrency;
+  const baseEnv = { PARACOSM_HOSTED_DEMO: '', PARACOSM_PLATFORM_API: '', PARACOSM_BATCH_CONCURRENCY: '' };
+  for (const env of [baseEnv, { ...baseEnv, PARACOSM_PLATFORM_API: 'true' }]) {
+    await withVisitors(async api => {
+      const answer = await api.visitor().json<Record<string, unknown> & {
+        demoCaps: Record<string, number>;
+        keys: Record<string, boolean>;
+      }>('/admin-config');
+      assert.equal(answer.hostedDemo, false);
+      assert.deepEqual(answer.demoCaps, {
+        maxTurns: DEMO_EXECUTION.maxTurns,
+        maxPopulation: DEMO_EXECUTION.maxPopulation,
+        maxActiveDepartments: DEMO_EXECUTION.maxActiveDepartments,
+      });
+      assert.equal(Object.hasOwn(answer.demoCaps, 'maxActors'), false);
+      assert.equal(Object.hasOwn(answer, 'run'), false);
+      assert.equal(Object.hasOwn(answer, 'batch'), false);
+      for (const key of ['openai', 'anthropic', 'serper', 'firecrawl', 'tavily', 'cohere']) {
+        assert.equal(typeof answer.keys[key], 'boolean');
+      }
+      assert.equal(typeof answer.visitorKeyIdleMinutes, 'number');
+    }, { env });
+  }
+  for (const [siteSetting, concurrency] of [['', defaultBatch], ['5', 5], ['2.5', defaultBatch]] as const) {
+    const cohorts: NormalizedSimulationConfig[] = [];
+    await withVisitors(async api => {
+      const v = api.cookied();
+      const answer = await v.json<{ demoCaps: { maxActors: number }; run: unknown; batch: { maxConcurrency: number } }>('/admin-config');
+      assert.equal(answer.demoCaps.maxActors, DEMO_EXECUTION.maxActors);
+      assert.deepEqual(answer.run, { minActors: 2, maxActors: 300, maxTurns: 100 });
+      assert.deepEqual(answer.batch, { maxConcurrency: concurrency });
+      const body = settingsBody(mars);
+      const [first] = body.actors;
+      const launch = async (economics: object, expected: number) => {
+        const index = cohorts.length;
+        const response = await api.cookied().post('/setup', {
+          ...body,
+          actors: [...body.actors, { ...first, name: 'Third leader' }],
+          apiKey: 'synthetic-provider-key',
+          economics,
+        });
+        assert.equal(response.status, 200);
+        const config = await waitFor(() => cohorts[index], 'cohort launch');
+        assert.equal(config.economics.batch.maxConcurrency, expected);
+      };
+      await launch({}, concurrency);
+      if (siteSetting === '5') {
+        await launch({ batchConcurrency: 3 }, 3);
+        const quality = resolveEconomicsProfile({ profileId: 'quality', provider: 'openai', baseModels: DEFAULT_MODELS.openai });
+        await launch({ profileId: 'quality' }, quality.batch.maxConcurrency);
+      }
+    }, {
+      env: { ...baseEnv, PARACOSM_HOSTED_DEMO: 'true', PARACOSM_BATCH_CONCURRENCY: siteSetting },
+      extra: { runBatchSimulations: async (config: NormalizedSimulationConfig) => { cohorts.push(config); } },
+    });
+  }
+});
 
 test('GET /setup redirects to the live dashboard settings surface', async () => {
   const server = createMarsServer({

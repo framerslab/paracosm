@@ -17,6 +17,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
+  catalogTurns,
   effectiveDepartments,
   effectiveLaunch,
   effectivePeople,
@@ -35,7 +36,7 @@ import {
   type LaunchScenarioWithLeaders,
 } from '../../../src/dashboard/src/components/quickstart/first-screen/effectiveLaunch.js';
 import { startSecondLine, startSpoken } from '../../../src/dashboard/src/components/quickstart/first-screen/words.js';
-import type { ServerFacts } from '../../../src/dashboard/src/components/quickstart/first-screen/useServerFacts.js';
+import { parseAdminConfig, parseRateLimit, type ServerFacts } from '../../../src/dashboard/src/components/quickstart/first-screen/useServerFacts.js';
 
 const scenarioFile = (name: string): LaunchScenarioWithLeaders =>
   JSON.parse(readFileSync(new URL(`../../../scenarios/${name}`, import.meta.url), 'utf-8')) as LaunchScenarioWithLeaders;
@@ -101,6 +102,30 @@ test('effectiveTurns on the visitor\'s key: the last launch on this scenario, el
   for (const turns of [0, 101, 2.5, '40', null]) {
     assert.equal(effectiveTurns(facts(false), mars, last('mars-genesis', turns), 'server'), 6, `turns ${JSON.stringify(turns)}`);
   }
+});
+
+test('catalogTurns: a row says the turns Start posts once that scenario is loaded', () => {
+  // The rows of Other scenarios as GET /scenarios lists them: each scenario's id and its own turns.
+  const marsRow = { id: mars.id, turns: mars.setup.defaultTurns };
+  const lunarRow = { id: lunar.id, turns: lunar.setup.defaultTurns };
+  const saved = { overrides: { openai: 'sk-test' }, lastLaunch: { scenarioId: 'mars-genesis', turns: 12 } };
+  // On the visitor's key a saved launch of 12 turns on Mars Genesis is the next run's length, not the scenario's 6.
+  assert.equal(catalogTurns(facts(true), marsRow, saved, 'own'), 12);
+  assert.equal(catalogTurns(facts(true), marsRow, saved, 'own'), effectiveTurns(facts(true), mars, saved, 'own'));
+  // The saved launch belongs to Mars Genesis alone: Lunar Outpost keeps its own 8.
+  assert.equal(catalogTurns(facts(true), lunarRow, saved, 'own'), 8);
+  assert.equal(catalogTurns(facts(true), lunarRow, saved, 'own'), effectiveTurns(facts(true), lunar, saved, 'own'));
+  // On a self-hosted server the same rule holds, under the server's own bound on turns.
+  const bounded: ServerFacts = { ...facts(false), adminConfig: { ...facts(false).adminConfig, run: { maxTurns: 10 } } };
+  assert.equal(catalogTurns(bounded, marsRow, saved, 'server'), effectiveTurns(bounded, mars, saved, 'server'));
+  assert.equal(catalogTurns(bounded, lunarRow, { overrides: {}, lastLaunch: null }, 'server'), 8);
+  // On the host's keys the cap of 6 cuts the row and the saved launch does not lift it.
+  assert.equal(catalogTurns(facts(true), lunarRow, saved, 'host'), 6);
+  assert.equal(catalogTurns(facts(true), marsRow, saved, 'host'), effectiveTurns(facts(true), mars, saved, 'host'));
+  // A host cap not yet known, or a row with no turns, says no figure.
+  const noCap: ServerFacts = { ...facts(true), adminConfig: { status: 'ready', hostedDemo: true } };
+  assert.equal(catalogTurns(noCap, lunarRow, saved, 'host'), undefined);
+  assert.equal(catalogTurns(facts(true), { id: 'drafted' }, saved, 'own'), undefined);
 });
 
 test('people and departments follow the host\'s caps on a free run and the scenario elsewhere', () => {
@@ -173,7 +198,7 @@ test('effectiveLaunch: the visitor\'s keys, provider, models and economics go in
   assert.equal(launch.body.serperKey, 'serper-key');
   assert.equal(launch.body.provider, 'anthropic');
   assert.deepEqual(launch.body.models, settings.lastLaunch.models);
-  assert.deepEqual(launch.body.economics, settings.lastLaunch.economics);
+  assert.deepEqual(launch.body.economics, { profileId: 'balanced', batchConcurrency: 5 });
   assert.equal(launch.body.turns, 12);
   assert.equal(launch.turns, 12);
   assert.equal(launch.body.seed, 950);
@@ -297,4 +322,31 @@ test('effectiveLaunch omits orders a hand-written scenario gives as something ot
   const posted = JSON.parse(JSON.stringify(launch.body));
   assert.deepEqual(posted.actors.map((actor: { name: string }) => actor.name), written.map(leader => leader.name));
   for (const actor of posted.actors) assert.equal(Object.hasOwn(actor, 'instructions'), false, actor.name);
+});
+
+test('the rate policy and run settings bound the turns sent by Start', () => {
+  const server = facts(true);
+  Object.assign(server.rateLimit, parseRateLimit({ allowed: true, remaining: 1, limit: 1, resetAt: 1, turns: 5 }));
+  server.adminConfig = parseAdminConfig({ hostedDemo: true, demoCaps: { maxTurns: 6 }, run: { maxTurns: 7 } });
+  const settings = { overrides: {}, lastLaunch: null };
+  assert.equal(effectiveLaunch(server, lunar, settings, 2, 'host').body.turns, 5);
+  const short = { ...lunar, setup: { ...lunar.setup, defaultTurns: 4 } };
+  assert.equal(effectiveLaunch(server, short, settings, 2, 'host').body.turns, 4);
+  assert.equal(effectiveLaunch(server, lunar, settings, 2, 'own').body.turns, 7);
+});
+
+test('batch uses the explicit request, saved resolution or default for the selected profile', () => {
+  const server = facts(true);
+  server.adminConfig = parseAdminConfig({ hostedDemo: true, batch: { maxConcurrency: 5 } });
+  for (const [economics, batch, posted] of [
+    [undefined, 5, undefined],
+    [{ profileId: 'quality' }, undefined, { profileId: 'quality' }],
+    [{ profileId: 'quality', batch: { maxConcurrency: 4 } }, 4, { profileId: 'quality', batchConcurrency: 4 }],
+    [{ profileId: 'quality', batch: { maxConcurrency: 4 }, batchConcurrency: 3 }, 3, { profileId: 'quality', batchConcurrency: 3 }],
+    [{ batchConcurrency: 1.5 }, 5, {}],
+  ] as const) {
+    const launch = effectiveLaunch(server, mars, { overrides: {}, lastLaunch: { economics } }, 24, 'own');
+    assert.equal(launch.batch, batch);
+    assert.deepEqual(launch.body.economics, posted);
+  }
 });
