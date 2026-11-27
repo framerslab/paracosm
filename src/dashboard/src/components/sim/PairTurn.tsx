@@ -83,7 +83,7 @@ function Decision({ name, nameAuthored, side, place, noun, metrics, firstStamp, 
   const check = side?.barCheck;
   const barText = check ? describeBarCheck(check) : '';
   const fact = check?.departs ? check.departureFact : '';
-  const reportedBar = (fact ? barText.slice(0, -fact.length) : barText).replaceAll("'", '’');
+  const reportedBar = fact ? barText.slice(0, -fact.length) : barText;
   const reportNames = Array.from(side?.reports.keys() ?? [], name => name.charAt(0).toUpperCase() + name.slice(1));
   const changes = side?.outcome ? changesOf(side.outcome, metrics) : '';
   const reason = String(choice?.rationale || '');
