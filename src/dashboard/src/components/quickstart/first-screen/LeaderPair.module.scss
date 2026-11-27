@@ -347,3 +347,25 @@
     grid-row: 1 / span 3;
   }
 }
+
+.promptKey {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  border: 0;
+  border-bottom: 1px solid var(--edge-control);
+  padding: 0;
+  background: transparent;
+  color: var(--text-1);
+  font: 600 var(--font-read-body)/1.4 var(--sans);
+  cursor: pointer;
+
+  &:is(:hover, :active) { border-bottom-color: var(--amber); }
+
+  &:focus-visible {
+    outline: 2px solid var(--amber);
+    outline-offset: 2px;
+  }
+}

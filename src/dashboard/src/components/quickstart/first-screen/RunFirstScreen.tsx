@@ -24,7 +24,8 @@
  *
  * @module paracosm/dashboard/quickstart/first-screen/RunFirstScreen
  */
-import { useCallback, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { KEY_OVERRIDES_CHANGED } from '../../../hooks/useLastLaunchConfig';
 import { useScenarioContext, useScenarioReady } from '../../../App';
 import { readPromptFromUrl, SeedInput, type SeedInputProps } from '../SeedInput';
 import { effectiveTurns, payer, readLaunchSettings, safeLocalStorage } from './effectiveLaunch';
@@ -70,6 +71,13 @@ function FirstScreen({ entry, onStart, onSeedReady }: Pick<RunFirstScreenProps, 
   const goToDraft = useRef<() => void>(() => undefined);
   const registerGoToDraft = useCallback((go: () => void) => { goToDraft.current = go; }, []);
 
+  const [, refreshPayer] = useState(0);
+  useEffect(() => {
+    const refresh = () => refreshPayer(revision => revision + 1);
+    window.addEventListener(KEY_OVERRIDES_CHANGED, refresh);
+    return () => window.removeEventListener(KEY_OVERRIDES_CHANGED, refresh);
+  }, []);
+
   // Read on each render: the Settings tab may have saved a key since.
   const settings = readLaunchSettings(safeLocalStorage());
   const who = payer(facts, settings.overrides);
@@ -96,7 +104,7 @@ function FirstScreen({ entry, onStart, onSeedReady }: Pick<RunFirstScreenProps, 
       <SharedColonyPanel size={runSize} />
       <RunSize size={runSize} limits={limits} mode={mode} onSize={setSize} locked={starting} />
       <FictionalNote />
-      <LeaderPair size={runSize} />
+      <LeaderPair size={runSize} payer={who} />
       <FirstScreenNotes />
       <StartBand entry={entry} size={runSize} onStart={onStart} onBusy={setStarting} draft={held} />
       <OtherScenarios locked={starting} />

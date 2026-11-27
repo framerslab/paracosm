@@ -21,13 +21,17 @@ import { AiWritten } from '../../shared/AiWritten';
  *
  * @module paracosm/dashboard/quickstart/first-screen/LeaderPair
  */
-import { useId, useRef, useState, type KeyboardEvent } from 'react';
+import { useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useScenarioContext, useScenarioReady } from '../../../App';
 import type { ScenarioClientPayload } from '../../../hooks/useScenario';
 import { useMediaQuery } from '../../viz/grid/useMediaQuery';
+import { FullPromptDialog } from './FullPromptDialog';
+import type { Payer } from './effectiveLaunch';
+import { useLeaderPrompt, type PromptSelection } from './useLeaderPrompt';
 import { SectionMark } from './marks';
 import { ScoreBar, ScoreRows, TRAIT_ORDER, readScores, scoreFigure, traitShown, type HexacoTrait } from './ScoreRows';
 import {
+  FULL_PROMPT,
   HEXACO_NOTE,
   LEADERS_SPOKEN,
   LOADING_LEADER,
@@ -35,6 +39,7 @@ import {
   NO_WRITTEN_LEADERS,
   ORDERS_MARK,
   SCORES_MARK,
+  SEE_FULL_PROMPT,
   placeSpoken,
   showLeader,
   unnamedLeader,
@@ -109,7 +114,7 @@ function Orders({ leader, noneWritten }: { leader: PairLeader; noneWritten: bool
 }
 
 /** A leader's card from the desktop width: an article named by the leader's name. */
-export function LeaderCard({ leader, noneWritten }: { leader: PairLeader; noneWritten: boolean }) {
+export function LeaderCard({ leader, noneWritten, promptKey }: { leader: PairLeader; noneWritten: boolean; promptKey: ReactNode }) {
   const nameId = useId();
   return (
     <article className={styles.card} aria-labelledby={nameId}>
@@ -127,6 +132,7 @@ export function LeaderCard({ leader, noneWritten }: { leader: PairLeader; noneWr
       </div>
       <div className={styles.orders}>
         <Orders leader={leader} noneWritten={noneWritten} />
+        {promptKey}
       </div>
     </article>
   );
@@ -269,14 +275,36 @@ function CardShape({ sideBySide }: { sideBySide: boolean }) {
 export interface LeaderPairProps {
   /** How many leaders the run takes: from 3, one row says Paracosm writes them all when the run starts. */
   size?: number;
+  /** The payer Start would use with the current settings. */
+  payer: Payer;
 }
 
 /** The pair of leaders: two cards side by side from 1,100 px, one card under a switch below it. */
-export function LeaderPair({ size = 2 }: LeaderPairProps) {
+export function LeaderPair({ size = 2, payer }: LeaderPairProps) {
   const scenario = useScenarioContext();
   const ready = useScenarioReady();
   const sideBySide = useMediaQuery(SIDE_BY_SIDE_QUERY);
   const [shown, setShown] = useState(0);
+  const [selection, setSelection] = useState<PromptSelection | null>(null);
+  const opener = useRef<HTMLButtonElement>(null);
+  const { state } = useLeaderPrompt(selection, payer);
+  const closePrompt = () => setSelection(null);
+  const promptKey = (leader: PairLeader) => {
+    if (!leader.written) return null;
+    const pending = state.status === 'loading' && selection?.place === leader.place;
+    return (
+      <button type="button" className={styles.promptKey} aria-haspopup="dialog"
+        onClick={event => {
+          if (selection) return;
+          opener.current = event.currentTarget;
+          setSelection({ scenarioId: scenario.id, place: leader.place, name: leader.name });
+        }}
+      >
+        <span>{pending ? FULL_PROMPT.opening : SEE_FULL_PROMPT}</span>
+        <span aria-hidden="true">↗</span>
+      </button>
+    );
+  };
   const baseId = useId();
   const tabId = (index: number) => `${baseId}-leader-${index + 1}`;
   const panelId = `${baseId}-card`;
@@ -311,17 +339,6 @@ export function LeaderPair({ size = 2 }: LeaderPairProps) {
     ? <p className={styles.writesAll} data-text="body" data-testid="writes-all">{writesAllLeaders(size)}</p>
     : null;
 
-  if (sideBySide) {
-    return (
-      <section className={styles.leaders} data-testid="leaders" aria-label={LEADERS_SPOKEN}>
-        {writesAll}
-        <div className={styles.pair}>
-          {pair.map((leader) => <LeaderCard key={leader.place} leader={leader} noneWritten={noneWritten} />)}
-        </div>
-      </section>
-    );
-  }
-
   const at = Math.min(shown, pair.length - 1);
   const leader = pair[at];
   const showLeaderAt = (index: number) => {
@@ -332,18 +349,28 @@ export function LeaderPair({ size = 2 }: LeaderPairProps) {
   return (
     <section className={styles.leaders} data-testid="leaders" aria-label={LEADERS_SPOKEN}>
       {writesAll}
-      <LeaderSwitch pair={pair} shown={at} onShow={showLeaderAt} tabId={tabId} panelId={panelId} />
-      <div className={`${styles.card} ${styles.shown}`} role="tabpanel" id={panelId} aria-label={leader.name}>
-        {leader.title && (
-          <div className={styles.head} data-testid="leader-head">
-            <p className={styles.title} data-testid="leader-title">{leader.title}</p>
-          </div>
-        )}
-        <PairScoreTable pair={pair} />
-        <div className={styles.orders}>
-          <Orders leader={leader} noneWritten={noneWritten} />
+      {sideBySide ? (
+        <div className={styles.pair}>
+          {pair.map(item => <LeaderCard key={item.place} leader={item} noneWritten={noneWritten} promptKey={promptKey(item)} />)}
         </div>
-      </div>
+      ) : (
+        <>
+          <LeaderSwitch pair={pair} shown={at} onShow={showLeaderAt} tabId={tabId} panelId={panelId} />
+          <div className={`${styles.card} ${styles.shown}`} role="tabpanel" id={panelId} aria-label={leader.name}>
+            {leader.title && (
+              <div className={styles.head} data-testid="leader-head">
+                <p className={styles.title} data-testid="leader-title">{leader.title}</p>
+              </div>
+            )}
+            <PairScoreTable pair={pair} />
+            <div className={styles.orders}>
+              <Orders leader={leader} noneWritten={noneWritten} />
+              {promptKey(leader)}
+            </div>
+          </div>
+        </>
+      )}
+      {selection && <FullPromptDialog selection={selection} payer={payer} state={state} onClose={closePrompt} />}
     </section>
   );
 }
