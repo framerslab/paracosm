@@ -19,14 +19,19 @@ import { createMarsServer } from '../../src/server/server-app.js';
 import { createNoopRunHistoryStore } from '../../src/server/stores/run-history.js';
 
 import type { CreateMarsServerOptions } from '../../src/server/server-app.js';
-import { watchPairFrames } from './watch-pair-frames.js';
+import { watchPairFrames, watchPairResult, watchPairVerdict } from './watch-pair-frames.js';
 
 const port = Number(process.env.PORT ?? 3458);
 const scripted = process.env.WATCH_PAIR === '1';
 const hosted = process.env.WATCH_HOSTED === '1';
 const baseDist = process.env.WATCH_BASE_DIST ? resolve(process.env.WATCH_BASE_DIST) : undefined;
 type Runner = NonNullable<CreateMarsServerOptions['runPairSimulations']>;
-let live: { names: string[]; broadcast: Parameters<Runner>[1] } | undefined;
+interface ScriptedRun {
+  names: string[];
+  broadcast: Parameters<Runner>[1];
+  finish?: () => void;
+}
+let live: ScriptedRun | undefined;
 
 const server = createMarsServer({
   env: {
@@ -46,14 +51,19 @@ const server = createMarsServer({
       phase: 'parallel',
       actors: actors.map(leader => ({ name: leader.name, archetype: leader.archetype, unit: leader.unit, hexaco: leader.hexaco })),
     });
-    const run = { names: actors.map(leader => leader.name), broadcast };
+    const run: ScriptedRun = { names: actors.map(leader => leader.name), broadcast };
     if (scripted) live = run;
     for (const leader of scripted ? [] : actors) {
       broadcast('sim', { type: 'turn_start', leader: leader.name, data: { turn: 1, time: startTime, title: 'Director generating...', crisis: '', births: 0, deaths: 0, metrics: {} } }, leader.name);
     }
     await new Promise<void>(resolve => {
       if (signal?.aborted) return resolve();
-      signal?.addEventListener('abort', () => resolve(), { once: true });
+      const finish = () => {
+        signal?.removeEventListener('abort', finish);
+        resolve();
+      };
+      run.finish = finish;
+      signal?.addEventListener('abort', finish, { once: true });
     });
     if (live === run) live = undefined;
   },
@@ -74,13 +84,24 @@ if (scripted) {
         const phase = url.searchParams.get('phase');
         const turn = Number(url.searchParams.get('turn'));
         if (!run || live !== run || !runKey || runKey !== url.searchParams.get('runKey') ||
-            !Number.isInteger(turn) || turn < 1 || turn > 100 ||
-            (phase !== 'crisis' && phase !== 'departments' && phase !== 'decisions')) {
+            !Number.isInteger(turn) || turn < 1 || turn > 100) {
           res.writeHead(409).end();
           return;
         }
-        for (const event of watchPairFrames(run.names, phase, turn)) {
-          run.broadcast('sim', event, event.leader);
+        if (phase === 'crisis' || phase === 'departments' || phase === 'decisions') {
+          for (const event of watchPairFrames(run.names, phase, turn)) {
+            run.broadcast('sim', event, event.leader);
+          }
+        } else if (phase === 'result-first' || phase === 'result-second') {
+          const leader = run.names[phase === 'result-first' ? 0 : 1];
+          run.broadcast('result', watchPairResult(leader), leader);
+        } else if (phase === 'verdict') {
+          run.broadcast('verdict', watchPairVerdict(run.names));
+          run.broadcast('complete', { timestamp: '2026-11-27T17:00:00.000Z' });
+          run.finish?.();
+        } else {
+          res.writeHead(400).end();
+          return;
         }
         res.writeHead(204).end();
       } catch {

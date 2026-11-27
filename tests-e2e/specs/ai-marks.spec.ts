@@ -60,6 +60,8 @@ for (const width of [320, 390, 640, 800]) {
       expect(replay.ok()).toBe(true);
       expect(await replay.text()).toContain(JSON.stringify(headline));
 
+      await expect(page.getByRole('status', { name: 'Simulation verdict' })).toHaveCount(0);
+      await openTab(page, 'reports');
       const banner = page.getByRole('status', { name: 'Simulation verdict' });
       const title = banner.getByText(headline, { exact: true });
       await expectMark(title);
@@ -721,6 +723,7 @@ for (const width of [390, 1280]) {
       await route.continue({ postData: { ...route.request().postDataJSON(), actors } });
     });
     await openPair(page, 'light');
+    await page.getByRole('button', { name: /^Read all \d+ turns at once$/ }).click();
     const bio = page.locator('.leaders-row').getByText('"' + actors[0].instructions + '"', { exact: true }).filter({ visible: true });
     await expect(bio).toHaveCount(2);
     await expectMark(bio.nth(0));
@@ -753,12 +756,11 @@ test('Watch, the event log and the verdict dialog each expose ownership on the d
   await openPair(page, 'dark');
   const decision = page.getByText('Keep a reserve of water.', { exact: true }).filter({ visible: true }).first();
   await expectMark(decision);
-  const card = decision.locator('xpath=ancestor::*[./details/summary[contains(., "Full reasoning")]][1]');
-  await card.locator('summary').click();
+  const card = decision.locator('xpath=ancestor::article[1]');
   await expectMark(card.getByText('The next harvest needs a cushion.', { exact: true }));
-  await expectMark(card.locator('details').getByText('Keep a reserve of water.', { exact: true }));
 
   await expectMark(page.getByText('The reserve carried the crew.', { exact: true }).filter({ visible: true }).first());
+  await openTab(page, 'reports');
   await page.getByRole('button', { name: /View Full Verdict/ }).click();
   const verdict = page.getByRole('dialog', { name: 'Simulation verdict' });
   await expectMark(verdict.getByText('Stored water protected the new crops.', { exact: true }));
@@ -883,10 +885,9 @@ test('a run saved before field-level source marks its model passages and leaves 
   await page.goto(origin + '/sim?tab=sim&replay=' + encodeURIComponent(id));
   const decision = page.getByText('Keep a reserve of water.', { exact: true }).filter({ visible: true }).first();
   await expectMark(decision);
-  const card = decision.locator('xpath=ancestor::*[./details/summary[contains(., "Full reasoning")]][1]');
-  await card.locator('summary').click();
+  const card = decision.locator('xpath=ancestor::article[1]');
   await expectMark(card.getByText('The next harvest needs a cushion.', { exact: true }));
-  await expectUnmarked(page.getByText(fallbackDecision, { exact: true }).filter({ visible: true }));
+  await expectUnmarked(page.getByText('No decision came back for this crisis.', { exact: true }).filter({ visible: true }));
 
   await openTab(page, 'reports');
   const report = page.getByRole('region', { name: 'Turn-by-turn report' });
@@ -945,7 +946,7 @@ test('a saved run opened in the same page after another run shows every one of i
     window.history.pushState(window.history.state, '', url.toString());
     window.dispatchEvent(new PopStateEvent('popstate'));
   }, id);
-  await expectUnmarked(page.getByText(fallbackDecision, { exact: true }).filter({ visible: true }));
+  await expectUnmarked(page.getByText('No decision came back for this crisis.', { exact: true }).filter({ visible: true }));
   await expectMark(page.getByText('Keep a reserve of water.', { exact: true }).filter({ visible: true }).first());
   await expect(page.getByText('Spend the reserve on new wells.', { exact: true }).filter({ visible: true })).toHaveCount(0);
 });
