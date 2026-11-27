@@ -433,8 +433,8 @@ test('the landing page title fits in 60 characters', () => {
 });
 
 test('the served landing page describes what differs between timelines', () => {
-  const description = 'Open-source TypeScript agent swarm simulator. Run one what-if as timelines from the same seed and change one thing between them: a leader’s HEXACO personality, an intervention, or an event at a past turn. An LLM event director writes each timeline’s crises from what happens in it.';
-  const lead = 'Type a scenario in plain English. Paracosm runs it as timelines side by side, all from the same start. An AI event director writes each timeline’s crises from what has happened in it so far. Change one thing between them, such as a leader’s personality, an intervention or an event at a past turn, and see where each one ends up.';
+  const description = 'Open-source TypeScript agent swarm simulator. Run one what-if as timelines from the same seed and change one thing between them: a leader’s HEXACO personality, an intervention, or an event at a past turn. An LLM event director writes each timeline’s unscripted crises from what happens in it.';
+  const lead = 'Type a scenario in plain English. Paracosm runs it as timelines side by side, all from the same start. An AI event director writes each timeline’s unscripted crises from what has happened in it so far. Change one thing between them, such as a leader’s personality, an intervention or an event at a past turn, and see where each one ends up.';
   assert.equal(html.match(/<meta name="description" content="([^"]*)">/)?.[1], description);
   assert.equal(html.match(/<meta property="og:description" content="([^"]*)">/)?.[1], description);
   assert.equal(html.match(/<meta name="twitter:description" content="([^"]*)">/)?.[1], description);
