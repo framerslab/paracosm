@@ -296,7 +296,7 @@ export function LeaderPair({ size = 2, payer }: LeaderPairProps) {
     if (!leader.written) return null;
     const pending = state.status === 'loading' && selection?.place === leader.place;
     return (
-      <button type="button" className={styles.promptKey} aria-haspopup="dialog"
+      <button type="button" className={styles.promptKey} aria-haspopup="dialog" data-prompt-place={leader.place}
         onClick={event => {
           if (opener.current) return;
           opener.current = event.currentTarget;

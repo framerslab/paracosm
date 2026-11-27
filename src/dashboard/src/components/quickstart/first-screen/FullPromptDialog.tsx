@@ -107,6 +107,7 @@ export function FullPromptDialog({ selection, payer, inRun, state, opener, onlin
       ? state.status : undefined;
   const [current, setCurrent] = useState<Part['key']>('system');
   const model = payer === 'host' ? answer?.model : null;
+  const place = selection.place;
 
   useLayoutEffect(() => {
     const node = dialog.current;
@@ -123,9 +124,15 @@ export function FullPromptDialog({ selection, payer, inRun, state, opener, onlin
     return () => {
       node.close();
       for (const { element, overflow } of locked) element.style.overflow = overflow;
-      if (opener?.isConnected) opener.focus({ preventScroll: true });
+      // A layout change between the two widths replaces the cards, so the
+      // opener may be gone: focus the same leader's key, or its switch tab.
+      const leaders = node.closest('[data-testid="leaders"]');
+      const back = opener?.isConnected ? opener
+        : leaders?.querySelector<HTMLElement>(`[data-prompt-place="${place}"]`)
+          ?? leaders?.querySelectorAll<HTMLElement>('[role="tab"]')[place - 1];
+      back?.focus({ preventScroll: true });
     };
-  }, [opener]);
+  }, [opener, place]);
 
   const wrapFocus = (event: KeyboardEvent<HTMLDialogElement>) => {
     if (event.key !== 'Tab') return;
