@@ -135,7 +135,7 @@ export function setSubTabUrlParam(sub: string | null): void {
   if (sub) url.searchParams.set('sub', sub);
   else url.searchParams.delete('sub');
   url.searchParams.delete('focus');
-  if (url.hash === '#key-openai') url.hash = '';
+  if (url.hash === '#key-openai' || url.hash === '#key-anthropic') url.hash = '';
   window.history.replaceState({}, '', url.toString());
 }
 
