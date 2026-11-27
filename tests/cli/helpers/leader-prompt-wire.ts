@@ -75,3 +75,42 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   assert.ok(mode === '--capture-mars' && destination, 'usage: --capture-mars <destination>');
   await writeFile(destination, JSON.stringify(await captureMarsOpenings(), null, 2) + '\n', 'utf8');
 }
+
+/** Retain the bootstrap and first decision from the same real commander. */
+export function firstCommanderTurn(calls: readonly WireCall[], orderMarker: string) {
+  const completions = modelCalls(calls);
+  const bootstrap = completions.find(call =>
+    call.lastUser.includes(BOOTSTRAP_MARKER) && call.system.includes(orderMarker),
+  );
+  assert.ok(bootstrap, 'the first commander bootstrap reached the provider');
+  const decision = completions.find(call =>
+    call.system.includes(orderMarker) && /^TURN 1,/.test(call.lastUser) && call.lastUser.includes('YOUR DECISION RULE'),
+  );
+  assert.ok(decision, 'the first commander decision reached the provider');
+  return { bootstrap, decision };
+}
+
+/** Observe the real pair runner with only the network and session title substituted. */
+export async function withPromptRuns(
+  run: (api: import('./run-server.js').RunServer, calls: WireCall[]) => Promise<void>,
+  options: import('./run-server.js').RunServerOptions = {},
+): Promise<void> {
+  const standIns = { OPENAI_API_KEY: 'openai-for-prompt-tests', ANTHROPIC_API_KEY: 'anthropic-for-prompt-tests' };
+  const restore = setHostKeys(standIns);
+  try {
+    await withProviderWire(async calls => {
+      await withVisitors(api => run(api, calls), {
+        ...options,
+        env: { ...standIns, PARACOSM_HOSTED_DEMO: 'true', ...options.env },
+        extra: {
+          getDigitalTwinWorld: async () => null,
+          runPairSimulations: undefined,
+          sessionStore: openSessionStore(':memory:', 10, { databaseOptions: { type: 'memory' } }),
+          generateText: async () => ({ text: 'A saved run' }),
+        },
+      });
+    }, reply, reply);
+  } finally {
+    restore();
+  }
+}
