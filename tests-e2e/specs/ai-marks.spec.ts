@@ -671,6 +671,39 @@ for (const count of [24, 300]) {
   });
 }
 
+for (const width of [390, 1280]) {
+  test(`a generated leader's bio keeps the supplied leader's layout in Watch at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(origin + '/sim');
+    const generated = await page.request.post(origin + '/api/quickstart/generate-actors', {
+      data: { scenarioId: 'mars-genesis', count: 2 },
+    });
+    expect(generated.ok()).toBeTruthy();
+    const { actors } = await generated.json();
+    expect(actors[0].aiAuthorship.fields).toContain('instructions');
+    delete actors[1].aiAuthorship;
+    await page.route('**/setup', async route => {
+      await route.continue({ postData: { ...route.request().postDataJSON(), actors } });
+    });
+    await openPair(page, 'light');
+    const bio = page.locator('.leaders-row').getByText('"' + actors[0].instructions + '"', { exact: true }).filter({ visible: true });
+    await expect(bio).toHaveCount(2);
+    await expectMark(bio.nth(0));
+    await expectUnmarked(bio.nth(1));
+    // Each bio shares its row with that leader's sparklines, written the same way whoever wrote it.
+    const rows = await bio.evaluateAll(nodes => nodes.map(node => {
+      const quote = node.closest('[data-ai-generated="true"]')?.parentElement ?? node;
+      const sparklines = quote.parentElement!.querySelector('.leader-sparklines')!.getBoundingClientRect();
+      const box = quote.getBoundingClientRect();
+      return { sameRow: sparklines.top < box.bottom && sparklines.left >= box.right - 1, whiteSpace: getComputedStyle(quote).whiteSpace };
+    }));
+    expect(rows).toEqual([
+      { sameRow: true, whiteSpace: 'nowrap' },
+      { sameRow: true, whiteSpace: 'nowrap' },
+    ]);
+  });
+}
+
 test('Watch, the event log and the verdict dialog each expose ownership on the displayed passage', async ({ page }) => {
   await openPair(page, 'dark');
   const decision = page.getByText('Keep a reserve of water.', { exact: true }).filter({ visible: true }).first();
