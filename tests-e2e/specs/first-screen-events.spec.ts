@@ -576,7 +576,7 @@ const BODY_LEADS = [
 ] as const;
 const NAMED_EVENTS: readonly FirstScreenEventName[] = [
   'qs_view', 'qs_start', 'run_started', 'run_failed', 'qs_how_open',
-  'qs_no_run_left_view', 'qs_no_run_left_action', 'qs_pair_switch', 'tab_change',
+  'qs_no_run_left_view', 'qs_no_run_left_action', 'qs_pair_switch', 'qs_prompt_open', 'tab_change',
 ];
 /** WCAG 1.4.12's text spacing, as the W3C's bookmarklet sets it, on the privacy section. */
 const PRIVACY_TEXT_SPACING = [
@@ -829,7 +829,7 @@ test('the privacy section shows at once and reads whole under reduced motion', a
   }
 });
 
-test('the API guide names the nine dashboard events the count route takes', () => {
+test('the API guide names the ten dashboard events the count route takes', () => {
   const guide = readFileSync(new URL('../../docs/HTTP_API.md', import.meta.url), 'utf8');
   const start = guide.indexOf('## `POST /api/event`');
   expect(start, 'the guide has a section for the count route').toBeGreaterThan(-1);
@@ -837,6 +837,7 @@ test('the API guide names the nine dashboard events the count route takes', () =
   const section = guide.slice(start, end === -1 ? undefined : end);
   for (const name of NAMED_EVENTS) expect.soft(section, name).toContain('`' + name + '`');
   expect(section, 'the named event body').toContain('"n": "qs_pair_switch"');
+  expect(section, 'the prompt event accepts only the two sides').toContain('| `qs_prompt_open` | A written leader’s full prompt opens | `side`: `left`, `right` | Yes |');
   expect(section, 'the page view body').toContain('{ "n": "pageview", "u": "/sim" }');
 });
 

@@ -18,9 +18,13 @@ import { readScenario, waitFor, withVisitors } from './helpers/run-server.js';
 import type { Visitor } from './helpers/visitor.js';
 
 test('both Mars commanders receive the original system prompt and opening message byte for byte', async () => {
-  const fixture = process.env.PARACOSM_TEST_ORIGINAL_PROMPTS
-    ?? new URL('../fixtures/leader-prompt/mars-opening.json', import.meta.url);
+  const fixture = new URL('../fixtures/leader-prompt/mars-opening.json', import.meta.url);
   const original = JSON.parse(await readFile(fixture, 'utf8')) as Awaited<ReturnType<typeof captureMarsOpenings>>;
+  assert.deepEqual(Object.keys(original).sort(), ['aria', 'dietrich']);
+  for (const capture of Object.values(original)) {
+    assert.deepEqual(Object.keys(capture).sort(), ['opening', 'system']);
+    assert.ok(capture.system.length > 0 && capture.opening.length > 0);
+  }
   const actual = await captureMarsOpenings();
   for (const leader of ['aria', 'dietrich'] as const) {
     for (const part of ['system', 'opening'] as const) {

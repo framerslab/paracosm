@@ -3,7 +3,10 @@ import { readFileSync } from 'node:fs';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import type { LeaderPromptAnswer } from '../../src/api/leader-prompt.js';
 import { marsScenario } from '../../src/engine/scenarios/index.js';
-import { scaleText, SERVERS } from '../support/frame.js';
+import { lookOf, scaleText, SERVERS } from '../support/frame.js';
+
+import { axeFindings, measureReadability, rowsOnOneRow } from '../support/first-screen-measure.js';
+import { FIGURES, measureText, settle, spacingFaults } from '../support/readability.js';
 
 test.skip(!!process.env.PARACOSM_E2E_BASE_URL, 'The prompt spec uses the hosted and installed fixture servers.');
 
@@ -377,10 +380,34 @@ for (const width of [390, 1440]) {
         const root = width === 390 ? page : page.getByRole('article', { name: 'Aria Chen', exact: true });
         const key = opener(root);
         await key.scrollIntoViewIfNeeded();
-        const snap = (surface: string) => page.screenshot({
-          path: `test-pictures/sim-first-screen/full-prompt/${surface}-${width}-${look}.png`,
-          animations: 'disabled',
-        });
+        const snap = async (surface: string) => {
+          const file = `${surface}-${width}-${look}.png`;
+          const actual = await page.screenshot({
+            path: `test-pictures/sim-first-screen/full-prompt/${file}`,
+            animations: 'disabled',
+          });
+          const published = readFileSync(new URL(`../../docs/design/sim-first-screen/full-prompt/${file}`, import.meta.url));
+          const result = await page.evaluate(async ({ before, after }) => {
+            const decode = async (png: string) => createImageBitmap(await (await fetch('data:image/png;base64,' + png)).blob());
+            const [reference, rendered] = await Promise.all([decode(before), decode(after)]);
+            const size = [reference.width, reference.height];
+            const renderedSize = [rendered.width, rendered.height];
+            const canvas = document.createElement('canvas');
+            canvas.width = reference.width;
+            canvas.height = reference.height;
+            const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
+            const pixelsOf = (bitmap: ImageBitmap) => {
+              ctx.clearRect(0, 0, canvas.width, canvas.height);
+              ctx.drawImage(bitmap, 0, 0);
+              bitmap.close();
+              return ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+            };
+            const expected = pixelsOf(reference);
+            const current = pixelsOf(rendered);
+            return { size, renderedSize, samePixels: expected.every((byte, index) => byte === current[index]) };
+          }, { before: published.toString('base64'), after: actual.toString('base64') });
+          expect.soft(result, file).toEqual({ size: [width * 2, 1688], renderedSize: [width * 2, 1688], samePixels: true });
+        };
         await snap('card');
         await readFrom(page, key, 1);
         await expect(dialog(page).getByRole('status')).toHaveText('Prompt loaded');
@@ -397,4 +424,276 @@ for (const width of [390, 1440]) {
       }
     });
   }
+}
+
+const panelRoot = 'dialog[open][aria-labelledby]';
+const keyRoot = '[data-testid="leaders"] button[aria-haspopup="dialog"]';
+const privacyRoots = [
+  '#privacy .privacy-updated',
+  '#privacy p:has-text("opening a leader’s full prompt")',
+  '#privacy p:has-text("It counts full prompt reads separately")',
+];
+
+async function measurePromptWords(page: Page, root: string, minLine: number) {
+  const surface = page.locator(root);
+  await expect(surface.first()).toBeVisible();
+  for (const item of await surface.all()) {
+    const words = await measureText(page, item, { unroundedContrast: true });
+    expect(words.length, root).toBeGreaterThan(0);
+    for (const word of words) {
+      const large = word.role === 'body' || word.role === 'heading';
+      expect.soft(word.px, word.selector).toBeGreaterThanOrEqual(large ? FIGURES.bodyPx : FIGURES.otherPx);
+      const floor = large ? FIGURES.bodyRatio : word.inactive ? FIGURES.glyphRatio : FIGURES.otherRatio;
+      expect.soft(word.ratio, word.selector).toBeGreaterThanOrEqual(floor);
+    }
+    const styles = await item.evaluate((el, min) => [el, ...el.querySelectorAll('*')].flatMap(node => {
+      const own = [...node.childNodes].some(child => child.nodeType === Node.TEXT_NODE && child.textContent?.trim());
+      if (!own || node.closest('.sr-only, [hidden]') || !node.getClientRects().length) return [];
+      const style = getComputedStyle(node);
+      if (style.visibility !== 'visible') return [];
+      const face = node.matches('code') ? 'JetBrains Mono' : 'Inter';
+      const role = node.closest('[data-text]')?.getAttribute('data-text');
+      const floor = role === 'body' || role === 'heading' ? 1.55 : min;
+      const line = parseFloat(style.lineHeight) / parseFloat(style.fontSize);
+      return style.fontFamily.startsWith('"' + face + '"') || style.fontFamily.startsWith(face)
+        ? (['400', '600'].includes(style.fontWeight) && line + 0.001 >= floor ? [] : [`${node.textContent?.trim().slice(0, 60)}: ${style.fontWeight}, line height ${line}`])
+        : [`${node.textContent?.trim().slice(0, 60)}: ${style.fontFamily}`];
+    }), minLine);
+    expect.soft(styles, root).toEqual([]);
+  }
+}
+
+async function expectPromptReflow(page: Page) {
+  expect.soft(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+  expect.soft(await rowsOnOneRow(page)).toEqual([]);
+  expect.soft(await dialog(page).evaluate(el => [el, ...el.querySelectorAll('header, nav, section, div, blockquote, h2, h3, button, a, p')]
+    .filter(node => node.clientWidth > 0 && node.scrollWidth > node.clientWidth + 1)
+    .map(node => node.tagName + ' ' + (node.textContent ?? '').trim().slice(0, 60)))).toEqual([]);
+}
+
+async function expectTarget(key: Locator, width: number, height: number) {
+  const rect = await key.boundingBox();
+  expect.soft(rect?.width, 'target width').toBeGreaterThanOrEqual(width);
+  expect.soft(rect?.height, 'target height').toBeGreaterThanOrEqual(height);
+}
+
+async function expectPromptPalette(page: Page, look: 'light' | 'dark') {
+  const [ink, quiet, quote, edge, amber] = look === 'light'
+    ? [15.51, 8.72, 18.52, 5.45, 6.96]
+    : [16.54, 11.81, 17.17, 6.65, 9.91];
+  const panel = dialog(page);
+  const nav = panel.getByRole('navigation').locator('[aria-current]');
+  const title = panel.getByRole('heading', { level: 2 });
+  const model = panel.getByText(/^Model on a free run:/);
+  const quoteBlock = panel.locator('blockquote').first();
+  for (const [word, expected] of [[title, ink], [model, quiet], [quoteBlock, quote]] as const) {
+    const measured = await measureText(page, word, { unroundedContrast: true });
+    expect(measured.length).toBeGreaterThan(0);
+    for (const part of measured) expect.soft(Number(part.ratio.toFixed(2)), part.selector).toBe(expected);
+  }
+  // Focus from the initial heading so the real keyboard focus ring is painted.
+  await title.focus();
+  await page.keyboard.press('Tab');
+  await expect(close(page)).toBeFocused();
+  const paints = await panel.evaluate((el) => {
+    const css = (node: Element) => getComputedStyle(node);
+    const rgb = (value: string) => value.match(/[\d.]+/g)!.slice(0, 3).map(Number);
+    const light = (value: string) => rgb(value).reduce((total, channel, i) => {
+      const c = channel / 255;
+      return total + [0.2126, 0.7152, 0.0722][i] * (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+    }, 0);
+    const ground = light(css(el).backgroundColor);
+    const contrast = (paint: string) => {
+      const luminance = light(paint);
+      return Number(((Math.max(luminance, ground) + 0.05) / (Math.min(luminance, ground) + 0.05)).toFixed(2));
+    };
+    const closeStyle = css(el.querySelector('header button')!);
+    const quoteStyle = css(el.querySelector('blockquote')!);
+    const speaking = el.querySelector('[data-speaking="true"]')!;
+    return {
+      closeEdge: contrast(closeStyle.borderTopColor),
+      quoteEdge: contrast(quoteStyle.borderInlineStartColor),
+      quoteWidth: quoteStyle.borderInlineStartWidth,
+      quoteInset: quoteStyle.paddingInlineStart,
+      trackEdge: contrast(css(speaking.parentElement!).borderTopColor),
+      fill: contrast(css(speaking).backgroundColor),
+      ring: contrast(closeStyle.outlineColor),
+      ringWidth: closeStyle.outlineWidth,
+      ringGap: closeStyle.outlineOffset,
+    };
+  });
+  expect.soft(paints).toEqual({
+    closeEdge: edge, quoteEdge: edge, quoteWidth: '3px', quoteInset: '12px',
+    trackEdge: edge, fill: amber, ring: amber, ringWidth: '2px', ringGap: '2px',
+  });
+  if (await nav.isVisible()) {
+    const mark = await nav.evaluate(el => {
+      const style = getComputedStyle(el);
+      return [style.borderInlineStartWidth, style.fontWeight, style.borderInlineStartColor];
+    });
+    expect.soft(mark).toEqual(['3px', '600', await close(page).evaluate(el => getComputedStyle(el).outlineColor)]);
+  }
+}
+
+for (const look of ['light', 'dark'] as const) {
+  for (const width of [320, 390, 600, 768, 1100, 1440]) {
+    test(`prompt readability and layout at ${width}px in ${look}`, async ({ page, context }) => {
+      test.setTimeout(60_000);
+      await context.addInitScript(theme => localStorage.setItem('paracosm-theme', theme), look);
+      await page.setViewportSize({ width, height: 844 });
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      await openRun(page);
+      expect((await lookOf(page)).light).toBe(look === 'light');
+      await page.evaluate(() => document.fonts.ready.then(() => undefined));
+      for (const key of await opener(page).all()) await expectTarget(key, 44, 44);
+      await measurePromptWords(page, keyRoot, 1.4);
+
+      // Force one failed read, then hold its retry long enough to measure its pending state.
+      const held = gate();
+      let requests = 0;
+      await page.route(routePrompt, async route => {
+        if (++requests === 1) return route.abort();
+        await held.held;
+        return route.continue();
+      });
+      await opener(page).first().click();
+      await expect(retry(page)).toBeEnabled();
+      await expectTarget(retry(page), 96, 44);
+      expect.soft(await measureReadability(page, panelRoot)).toEqual([]);
+      await measurePromptWords(page, panelRoot, 1.4);
+      const response = promptResponse(page);
+      await retry(page).click();
+      const trying = dialog(page).getByRole('button', { name: 'Trying…' });
+      try {
+        await expect(trying).toBeDisabled();
+        await measurePromptWords(page, panelRoot, 1.4);
+        await expectPromptReflow(page);
+      } finally {
+        held.release();
+      }
+      const answer: LeaderPromptAnswer = await (await response).json();
+      const panel = dialog(page);
+      await expectParts(panel, answer);
+      await settle(panel);
+      expect.soft(await measureReadability(page, panelRoot)).toEqual([]);
+      await measurePromptWords(page, panelRoot, 1.4);
+      await expectPromptReflow(page);
+      await expectTarget(close(page), 44, 44);
+      await expectPromptPalette(page, look);
+
+      const size = (await panel.boundingBox())!;
+      const nav = panel.getByRole('navigation');
+      if (width < 600) {
+        expect(size).toMatchObject({ x: 0, y: 0, width, height: 844 });
+        for (const heading of await panel.getByRole('heading', { level: 3 }).all()) await expectTarget(heading.getByRole('button'), 44, 48);
+      } else {
+        expect(size.height).toBeLessThanOrEqual(844 * 0.9 + 1);
+        if (width < 1100) {
+          expect(size.width).toBeGreaterThanOrEqual(560);
+          expect(size.width).toBeLessThanOrEqual(720);
+        } else {
+          expect(size.width).toBe(width === 1440 ? 1120 : 960);
+          expect((await nav.boundingBox())?.width).toBe(240);
+          for (const link of await nav.getByRole('link').all()) await expectTarget(link, 44, 44);
+        }
+        const opening = panel.getByRole('region', { name: headings.opening });
+        const note = (await opening.getByText(/^Sent once/).boundingBox())!;
+        const quote = (await opening.locator('blockquote').boundingBox())!;
+        if (width === 1440) expect(note.x + note.width).toBeLessThan(quote.x);
+        else expect(note.y).toBeLessThan(quote.y);
+      }
+      expect.soft(await panel.evaluate(el => [getComputedStyle(el).animationName, getComputedStyle(el.querySelector('[aria-busy]')!).scrollBehavior]))
+        .toEqual(['none', 'auto']);
+      if (width === 390 || width === 1440) expect.soft(await axeFindings(page, 'body')).toEqual([]);
+
+      await close(page).click();
+      expect.soft(await measureReadability(page, keyRoot + ':visible')).toEqual([]);
+      await page.goto(SERVERS.demo + '/#privacy');
+      await page.evaluate(() => document.fonts.ready.then(() => undefined));
+      expect((await lookOf(page)).light).toBe(look === 'light');
+      for (const root of privacyRoots) {
+        expect.soft(await measureReadability(page, root)).toEqual([]);
+        await measurePromptWords(page, root, 1.4);
+        expect.soft(await spacingFaults(page.locator(root))).toEqual({ cut: [], overlaps: [] });
+      }
+      expect.soft(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+    });
+  }
+}
+
+for (const width of [390, 1440]) {
+  for (const look of ['light', 'dark'] as const) {
+    for (const access of ['own key', 'daily limit'] as const) {
+      test(`prompt accessibility with ${access} at ${width}px in ${look}`, async ({ page, context }) => {
+        await page.setViewportSize({ width, height: 844 });
+        await context.addInitScript(theme => localStorage.setItem('paracosm-theme', theme), look);
+        await page.emulateMedia({ reducedMotion: 'reduce' });
+        if (access === 'daily limit') {
+          const start = await page.request.post(SERVERS.demo + '/setup', { data: {
+            quickstart: { scenarioId: mars.id }, actors: mars.presets[0].leaders, turns: 1, seed: mars.setup.defaultSeed,
+          } });
+          expect(start.ok()).toBe(true);
+          expect((await (await page.request.get(SERVERS.demo + '/rate-limit')).json()).remaining).toBe(0);
+        } else {
+          await context.addInitScript(() => sessionStorage.setItem('paracosm:keyOverrides', JSON.stringify({ openai: 'fixture-prompt-access' })));
+        }
+        try {
+          await openRun(page);
+          const answer = await readFrom(page, opener(page).first(), 1, access === 'own key');
+          await expectParts(dialog(page), answer);
+          expect(await axeFindings(page, 'body')).toEqual([]);
+        } finally {
+          if (access === 'daily limit') await page.request.post(SERVERS.demo + '/clear');
+        }
+      });
+    }
+  }
+}
+
+test('the existing grid and written comparison survive opening and closing at 2, 24 and 300', async ({ page, context }) => {
+  test.setTimeout(60_000);
+  await page.setViewportSize({ width: 1440, height: 844 });
+  await context.addInitScript(() => sessionStorage.setItem('paracosm:keyOverrides', JSON.stringify({ openai: 'fixture-prompt-scale' })));
+  for (const size of [2, 24, 300]) {
+    await page.goto(SERVERS.demo + '/sim?size=' + size);
+    const reject = consent(page).getByRole('button', { name: 'Reject all' });
+    if (size === 2) await reject.click();
+    const field = page.getByTestId('run-size').getByRole('spinbutton');
+    await expect(field).toHaveValue(String(size));
+    const colony = page.getByTestId('shared-colony');
+    const cards = page.getByTestId('leaders').getByRole('article');
+    const check = async () => {
+      await expect(colony.locator('canvas')).toBeVisible();
+      await expect(colony.locator('canvas')).toHaveCount(1);
+      await expect(cards).toHaveCount(2);
+      const [left, right] = await Promise.all([cards.nth(0).boundingBox(), cards.nth(1).boundingBox()]);
+      expect(left!.x + left!.width).toBeLessThanOrEqual(right!.x);
+      expect(left!.y).toBe(right!.y);
+    };
+    await check();
+    const key = opener(cards.first());
+    await readFrom(page, key, 1, true);
+    await expect(dialog(page).getByRole('status')).toHaveText('Prompt loaded');
+    await close(page).click();
+    await expect(key).toBeFocused();
+    await expect(field).toHaveValue(String(size));
+    await check();
+  }
+});
+
+for (const look of ['light', 'dark'] as const) {
+  test(`prompt targets and rows fit at intermediate widths in ${look}`, async ({ page, context }) => {
+    test.setTimeout(60_000);
+    await context.addInitScript(theme => localStorage.setItem('paracosm-theme', theme), look);
+    await page.setViewportSize({ width: 320, height: 844 });
+    await openRun(page);
+    for (const width of [320, 360, 390, 430, 480, 768]) {
+      await page.setViewportSize({ width, height: 844 });
+      await readFrom(page, opener(page), 1);
+      await expect(dialog(page).getByRole('status')).toHaveText('Prompt loaded');
+      await expectPromptReflow(page);
+      await expectTarget(close(page), 44, 44);
+      await close(page).click();
+    }
+  });
 }
