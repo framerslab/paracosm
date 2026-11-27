@@ -501,7 +501,8 @@ function wallTimeEstimate(count: number, batchSize = 8): string {
   if (count <= 0) return '—';
   const baselineMin = 2;
   const perBatchMin = 5;
-  const batches = Math.max(1, Math.ceil(count / batchSize));
+  // A pair runs both leaders at once (runPairSimulations), whatever the batch size.
+  const batches = count <= 2 ? 1 : Math.max(1, Math.ceil(count / batchSize));
   const lo = baselineMin + perBatchMin * batches;
   const hi = Math.ceil(lo * 1.5);
   return `${lo}–${hi} min`;
