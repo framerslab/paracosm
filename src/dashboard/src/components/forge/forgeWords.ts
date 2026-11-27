@@ -74,9 +74,6 @@ export const LOOK_KEY_NAMES = {
   toDark: 'Switch to dark mode',
 } as const;
 
-/** The one label at the top of every trace. */
-export const AI_WRITTEN_LABEL = 'Written by an AI model during this paracosm run';
-
 /** What happened to a forge, in one sentence, as far as the run's record says. */
 export const RECORD_OUTCOME_SENTENCES: Readonly<Record<RecordOutcome, string>> = {
   passed: 'Passed. The judge approved it.',

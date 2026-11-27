@@ -651,7 +651,7 @@ export function StartBand({ size, onStart, onBusy, draft = null }: StartBandProp
     )
     : null;
 
-  // Held, the bar carries the notice's first sentence and what the leaders are; resting, the whole notice is beside it.
+  // Held, the bar carries the notice's first sentence and what the leaders are, so the AI line is beside Start before any scroll.
   const heldLines = held && firstSentence && !problem
     ? (
       <div

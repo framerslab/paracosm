@@ -238,7 +238,7 @@
   text-wrap: pretty;
 }
 
-// The notice's first sentence and what the leaders are, while the bar is held.
+// The first sentence of the payment notice while the bar is held.
 .lines {
   display: flex;
   flex-direction: column;
@@ -249,8 +249,7 @@
   @include quiet-tone;
 }
 
-// On a phone and a narrow tablet the two lines stand over the key, as the
-// bar's top; they take no room in the bar's own box.
+// On a phone and a narrow tablet the notice sits just above the key.
 .over {
   position: absolute;
   left: 0;
@@ -261,7 +260,7 @@
   @include held-ground;
 }
 
-// With the two lines over it, the rule is drawn over them.
+// Draw the rule above the notice while the bar is held.
 .bar[data-stuck='true']:has(> .over) {
   @include held-ground(false);
 }

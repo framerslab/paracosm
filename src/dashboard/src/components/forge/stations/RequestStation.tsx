@@ -22,6 +22,13 @@ export interface RequestStationProps {
   onGoToEvent: (target: HTMLElement) => void;
 }
 
+/** The recorded request description and its mark, in the summary and evidence. */
+export function RequestDescription({ entry, attempt }: Pick<RequestStationProps, 'entry' | 'attempt'>) {
+  const description = attempt?.description || entry.description;
+  const authored = Boolean(description) && Boolean(attempt?.description || entry.attempts.length);
+  return <AiWritten authored={authored}>{description}</AiWritten>;
+}
+
 /** One declared field. `type` is null when the record names the field and holds no schema; `required` then too. */
 interface FieldRow {
   name: string;
@@ -139,7 +146,6 @@ export function RequestStation({ entry, attempt, actor, onGoToEvent }: RequestSt
   const eventIndex = source?.eventIndex ?? 0;
   const department = source?.department || entry.firstForgedDepartment;
   const eventTitle = source?.eventTitle ?? '';
-  const description = attempt?.description || entry.description;
 
   // The event is a link only where the run view draws it.
   const [targetId, setTargetId] = useState<string | null>(null);
@@ -179,7 +185,7 @@ export function RequestStation({ entry, attempt, actor, onGoToEvent }: RequestSt
       <div className={styles.part}>
         <h3 id={doesId} className={styles.heading} data-text="heading">{REQUEST_WORDS.whatItDoes}</h3>
         <p className={styles.body} data-text="body">
-          <AiWritten authored={Boolean(description) && Boolean(attempt?.description || entry.attempts.length)}>{description}</AiWritten>
+          <RequestDescription entry={entry} attempt={attempt} />
         </p>
       </div>
 
