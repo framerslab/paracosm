@@ -1,7 +1,7 @@
 /** Fixed analytics fields shared by the dashboard and count endpoint. */
-function rule(record: boolean, fields: Record<string, readonly string[]>) {
+function rule(record: boolean, fields: Record<string, readonly string[]>, count = true) {
   for (const values of Object.values(fields)) Object.freeze(values);
-  return Object.freeze({ record, fields: Object.freeze(fields) });
+  return Object.freeze({ record, count, fields: Object.freeze(fields) });
 }
 
 const EVENTS = Object.freeze({
@@ -20,6 +20,7 @@ const EVENTS = Object.freeze({
   qs_no_run_left_view: rule(true, {}),
   qs_no_run_left_action: rule(true, { action: ['replay_last', 'add_key'] }),
   qs_pair_switch: rule(false, { to: ['1', '2'] }),
+  watch_fold: rule(false, { fold: ['crisis', 'reasoning'] }, false),
   tab_change: rule(false, { to: ['quickstart', 'sim', 'reports', 'studio', 'viz', 'chat', 'library', 'settings', 'about'] }),
 });
 
@@ -35,6 +36,7 @@ export function checkedFirstScreenEvent(name: unknown, fields: unknown): {
   name: FirstScreenEventName;
   fields: Record<string, string>;
   record: boolean;
+  count: boolean;
 } | null {
   if (!isEventName(name) || typeof fields !== 'object' || fields === null || Array.isArray(fields)) return null;
   const prototype = Object.getPrototypeOf(fields);
@@ -50,7 +52,7 @@ export function checkedFirstScreenEvent(name: unknown, fields: unknown): {
     if (typeof value !== 'string' || !allowed.includes(value)) return null;
     checked[key] = value;
   }
-  return { name, fields: checked, record: rule.record };
+  return { name, fields: checked, record: rule.record, count: rule.count };
 }
 
 /** Maps a whole leader count to its analytics bucket. */

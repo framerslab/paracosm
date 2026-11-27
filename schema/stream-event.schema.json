@@ -814,6 +814,42 @@
               "type": "integer",
               "minimum": 0,
               "maximum": 9007199254740991
+            },
+            "barCheck": {
+              "type": "object",
+              "properties": {
+                "boldChance": {
+                  "type": "number"
+                },
+                "bar": {
+                  "type": "number"
+                },
+                "clearsBar": {
+                  "type": "boolean"
+                },
+                "choseBold": {
+                  "type": "boolean"
+                },
+                "departs": {
+                  "type": "boolean"
+                },
+                "departureFact": {
+                  "type": "string"
+                },
+                "unexplained": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "boldChance",
+                "bar",
+                "clearsBar",
+                "choseBold",
+                "departs",
+                "departureFact",
+                "unexplained"
+              ],
+              "additionalProperties": false
             }
           },
           "required": [

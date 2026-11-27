@@ -2,7 +2,6 @@ import * as React from 'react';
 import type { CSSProperties } from 'react';
 import { EventCard } from './EventCard.js';
 import { DiffBadge } from './DiffBadge.js';
-import { getActorColorVar } from '../../hooks/useGameState.js';
 import type { ProcessedEvent } from '../../hooks/useGameState.js';
 import type { TurnDiffEntry } from './turn-diff.js';
 import styles from './TurnRow.module.scss';
@@ -13,7 +12,7 @@ void React;
  *  in-flight work (department analyzing, decision pending) that gets
  *  superseded by their `_done` counterparts. We need to know if a cell
  *  has *only* these so we can show "Working…" instead of an empty cell. */
-const PENDING_TYPES = new Set(['turn_start', 'specialist_start', 'decision_pending']);
+const PENDING_TYPES = new Set(['turn_start', 'specialist_start', 'decision_pending', 'decision_made']);
 
 function summarizePending(events: ProcessedEvent[]): string {
   const depts = new Set<string>();
@@ -97,7 +96,7 @@ export function TurnRow({ entry, eventsA, eventsB, runTerminal, runAborted }: Tu
             <div
               key={idx}
               className={styles.cell}
-              style={{ ['--cell-color' as string]: getActorColorVar(idx) } as CSSProperties}
+              style={{ ['--cell-color' as string]: 'var(--edge-control)' } as CSSProperties}
               aria-label={`Leader ${idx === 0 ? 'A' : 'B'} events for this turn`}
             >
               <span className={styles.cellBand} aria-hidden="true" />
@@ -140,7 +139,7 @@ export function TurnRow({ entry, eventsA, eventsB, runTerminal, runAborted }: Tu
                   </div>
                 )
               ) : (
-                renderable.map(e => <EventCard key={e.id} event={e} actorIndex={idx as 0 | 1} />)
+                renderable.map(e => <EventCard key={e.id} event={e} actorIndex={idx as 0 | 1} neutral />)
               )}
             </div>
           );

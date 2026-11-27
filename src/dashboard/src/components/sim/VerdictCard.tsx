@@ -35,9 +35,10 @@ interface VerdictCardProps {
   verdict: Record<string, unknown>;
   /** Names the run the page shows; see {@link useVerdictExport}. */
   shownRun?: string;
+  pairTone?: boolean;
 }
 
-function ScoreBar({ label, a, b }: { label: string; a: number; b: number }) {
+function ScoreBar({ label, a, b, pairTone }: { label: string; a: number; b: number; pairTone?: boolean }) {
   // VerdictScoresSchema clamps to 0-10. Using the score-ceiling (10)
   // as the bar denominator means equal scores render equal-length bars
   // proportional to the absolute scale: 9 vs 9 fills 90%, 5 vs 5 fills
@@ -60,7 +61,7 @@ function ScoreBar({ label, a, b }: { label: string; a: number; b: number }) {
             className={styles.scoreBarFillLeft}
             style={{
               '--bar-pct': aPct,
-              '--bar-color': a >= b ? 'var(--vis)' : 'var(--border-hl)',
+              '--bar-color': pairTone ? 'var(--edge-control)' : a >= b ? 'var(--vis)' : 'var(--border-hl)',
             } as CSSProperties}
           />
         </div>
@@ -69,7 +70,7 @@ function ScoreBar({ label, a, b }: { label: string; a: number; b: number }) {
             className={styles.scoreBarFillRight}
             style={{
               '--bar-pct': bPct,
-              '--bar-color': b >= a ? 'var(--eng)' : 'var(--border-hl)',
+              '--bar-color': pairTone ? 'var(--edge-control)' : b >= a ? 'var(--eng)' : 'var(--border-hl)',
             } as CSSProperties}
           />
         </div>
@@ -78,7 +79,7 @@ function ScoreBar({ label, a, b }: { label: string; a: number; b: number }) {
   );
 }
 
-function StatRow({ label, a, b, format, scenarioFormat, currency, direction }: {
+function StatRow({ label, a, b, format, scenarioFormat, currency, direction, pairTone }: {
   label: string;
   /** Undefined only for a scenario score a run does not hold; it reads n/a. */
   a: number | undefined;
@@ -90,6 +91,7 @@ function StatRow({ label, a, b, format, scenarioFormat, currency, direction }: {
   currency?: string;
   /** Which way is better for a scenario score (higher by default). */
   direction?: 'higher' | 'lower';
+  pairTone?: boolean;
 }) {
   const fmt = (v: number | undefined) => {
     if (scenarioFormat) return formatScenarioStat(v, scenarioFormat, currency);
@@ -104,7 +106,7 @@ function StatRow({ label, a, b, format, scenarioFormat, currency, direction }: {
       <span
         className={styles.statValueA}
         style={{
-          '--stat-color': better === 'a' ? 'var(--vis)' : 'var(--text-2)',
+          '--stat-color': pairTone ? 'var(--text-1)' : better === 'a' ? 'var(--vis)' : 'var(--text-2)',
           '--stat-weight': better === 'a' ? '700' : '400',
         } as CSSProperties}
       >
@@ -114,7 +116,7 @@ function StatRow({ label, a, b, format, scenarioFormat, currency, direction }: {
       <span
         className={styles.statValueB}
         style={{
-          '--stat-color': better === 'b' ? 'var(--eng)' : 'var(--text-2)',
+          '--stat-color': pairTone ? 'var(--text-1)' : better === 'b' ? 'var(--eng)' : 'var(--text-2)',
           '--stat-weight': better === 'b' ? '700' : '400',
         } as CSSProperties}
       >
@@ -262,8 +264,8 @@ function useVerdictExport(v: VerdictData, shownRun?: string): { copied: boolean;
  * screen reader announces them when they arrive. A copy that works puts
  * {@link VERDICT_COPIED} there for a screen reader alone.
  */
-export function VerdictDetails({ v, onExport, copied, notCopied }: { v: VerdictData; onExport?: () => void; copied?: boolean; notCopied?: boolean }) {
-  const winColor = winColorFor(v.winner);
+export function VerdictDetails({ v, onExport, copied, notCopied, pairTone }: { v: VerdictData; onExport?: () => void; copied?: boolean; notCopied?: boolean; pairTone?: boolean }) {
+  const winColor = pairTone ? 'var(--text-1)' : winColorFor(v.winner);
   return (
     <>
       <div className={styles.headerRow}>
@@ -305,37 +307,37 @@ export function VerdictDetails({ v, onExport, copied, notCopied }: { v: VerdictD
 
       <div className={styles.matchupRow}>
         <div className={styles.matchupSide}>
-          <div className={styles.matchupNameA}>{v.leaderA?.name || 'Leader A'}</div>
+          <div className={styles.matchupNameA} style={pairTone ? { color: 'var(--text-1)' } : undefined}>{v.leaderA?.name || 'Leader A'}</div>
           <div className={styles.matchupArchetype}>{v.leaderA?.archetype}</div>
         </div>
         <div className={styles.matchupVs}>vs</div>
         <div className={styles.matchupSide}>
-          <div className={styles.matchupNameB}>{v.leaderB?.name || 'Leader B'}</div>
+          <div className={styles.matchupNameB} style={pairTone ? { color: 'var(--text-1)' } : undefined}>{v.leaderB?.name || 'Leader B'}</div>
           <div className={styles.matchupArchetype}>{v.leaderB?.archetype}</div>
         </div>
       </div>
 
       <div className={styles.scoreBarsWrap}>
-        <ScoreBar label="Survival" a={v.scores.a?.survival ?? 0} b={v.scores.b?.survival ?? 0} />
-        <ScoreBar label="Prosperity" a={v.scores.a?.prosperity ?? 0} b={v.scores.b?.prosperity ?? 0} />
-        <ScoreBar label="Morale" a={v.scores.a?.morale ?? 0} b={v.scores.b?.morale ?? 0} />
-        <ScoreBar label="Innovation" a={v.scores.a?.innovation ?? 0} b={v.scores.b?.innovation ?? 0} />
+        <ScoreBar pairTone={pairTone} label="Survival" a={v.scores.a?.survival ?? 0} b={v.scores.b?.survival ?? 0} />
+        <ScoreBar pairTone={pairTone} label="Prosperity" a={v.scores.a?.prosperity ?? 0} b={v.scores.b?.prosperity ?? 0} />
+        <ScoreBar pairTone={pairTone} label="Morale" a={v.scores.a?.morale ?? 0} b={v.scores.b?.morale ?? 0} />
+        <ScoreBar pairTone={pairTone} label="Innovation" a={v.scores.a?.innovation ?? 0} b={v.scores.b?.innovation ?? 0} />
       </div>
 
       {v.finalStats && (
         <div className={styles.finalStats}>
           <div className={styles.finalStatsLabel}>{finalStatsTitle(v.settlementNoun)}</div>
           {scenarioStatRows(v.finalStats)?.map(r => (
-            <StatRow key={r.id} label={scenarioStatLabel(r)} a={r.a} b={r.b} scenarioFormat={r.format} currency={r.currency} direction={r.better} />
+            <StatRow pairTone={pairTone} key={r.id} label={scenarioStatLabel(r)} a={r.a} b={r.b} scenarioFormat={r.format} currency={r.currency} direction={r.better} />
           )) ?? (<>
-            <StatRow label="Population" a={v.finalStats.a?.population ?? 0} b={v.finalStats.b?.population ?? 0} />
-            <StatRow label="Morale" a={v.finalStats.a?.morale ?? 0} b={v.finalStats.b?.morale ?? 0} format="percent" />
-            <StatRow label="Food (mo)" a={v.finalStats.a?.food ?? 0} b={v.finalStats.b?.food ?? 0} format="decimal" />
-            <StatRow label="Power (kW)" a={v.finalStats.a?.power ?? 0} b={v.finalStats.b?.power ?? 0} format="decimal" />
-            <StatRow label="Modules" a={v.finalStats.a?.modules ?? 0} b={v.finalStats.b?.modules ?? 0} format="decimal" />
-            <StatRow label="Science" a={v.finalStats.a?.science ?? 0} b={v.finalStats.b?.science ?? 0} />
+            <StatRow pairTone={pairTone} label="Population" a={v.finalStats.a?.population ?? 0} b={v.finalStats.b?.population ?? 0} />
+            <StatRow pairTone={pairTone} label="Morale" a={v.finalStats.a?.morale ?? 0} b={v.finalStats.b?.morale ?? 0} format="percent" />
+            <StatRow pairTone={pairTone} label="Food (mo)" a={v.finalStats.a?.food ?? 0} b={v.finalStats.b?.food ?? 0} format="decimal" />
+            <StatRow pairTone={pairTone} label="Power (kW)" a={v.finalStats.a?.power ?? 0} b={v.finalStats.b?.power ?? 0} format="decimal" />
+            <StatRow pairTone={pairTone} label="Modules" a={v.finalStats.a?.modules ?? 0} b={v.finalStats.b?.modules ?? 0} format="decimal" />
+            <StatRow pairTone={pairTone} label="Science" a={v.finalStats.a?.science ?? 0} b={v.finalStats.b?.science ?? 0} />
           </>)}
-          <StatRow label="Tools Forged" a={v.finalStats.a?.tools ?? 0} b={v.finalStats.b?.tools ?? 0} />
+          <StatRow pairTone={pairTone} label="Tools Forged" a={v.finalStats.a?.tools ?? 0} b={v.finalStats.b?.tools ?? 0} />
         </div>
       )}
     </>
@@ -355,7 +357,7 @@ export function VerdictDetails({ v, onExport, copied, notCopied }: { v: VerdictD
  * showed no verdict in the SIM body even when `cohort_verdict` had
  * landed cleanly.
  */
-export function VerdictPanel({ verdict: raw, shownRun }: VerdictCardProps) {
+export function VerdictPanel({ verdict: raw, shownRun, pairTone = false }: VerdictCardProps) {
   const v = raw as unknown as VerdictData & { mode?: string; rankings?: unknown; winnerIndex?: number };
   const { copied, notCopied, exportVerdict } = useVerdictExport(v, shownRun);
   // Collapsible: clicking the close button shrinks the panel to a
@@ -373,7 +375,7 @@ export function VerdictPanel({ verdict: raw, shownRun }: VerdictCardProps) {
   if (mode === 'cohort' && !Array.isArray(v.rankings)) return null;
   const winColor = mode === 'cohort'
     ? getActorColorVar(typeof v.winnerIndex === 'number' ? v.winnerIndex : 0)
-    : winColorFor(v.winner);
+    : pairTone ? 'var(--edge-control)' : winColorFor(v.winner);
   if (!expanded) {
     const headline = v.headline ?? (mode === 'cohort'
       ? `${String(v.winner)} leads`
@@ -408,7 +410,7 @@ export function VerdictPanel({ verdict: raw, shownRun }: VerdictCardProps) {
       </button>
       {mode === 'cohort'
         ? <CohortVerdictDetails v={v as unknown as Record<string, unknown>} />
-        : <VerdictDetails v={v} onExport={exportVerdict} copied={copied} notCopied={notCopied} />}
+        : <VerdictDetails v={v} onExport={exportVerdict} copied={copied} notCopied={notCopied} pairTone={pairTone} />}
     </div>
   );
 }

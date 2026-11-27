@@ -304,3 +304,172 @@
 // visible). Removed wholesale; if a future surface needs to advertise
 // the layout choice up top it should live inside the leadersRow band
 // rather than as its own row.
+
+.watchTurn {
+  --watch-prose-width: 47ch;
+  --watch-fade-duration: 160ms;
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  gap: var(--frame-gap);
+  min-width: 0;
+  padding: var(--frame-side-padding);
+  font: 400 var(--font-read)/1.4 var(--sans);
+  color: var(--text-1);
+  background: var(--bg-deep);
+}
+
+.watchHeading {
+  font: 600 var(--font-read-body)/1.55 var(--sans);
+  order: -3;
+}
+
+.watchColumns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--frame-side-padding);
+}
+
+.watchShared {
+  grid-column: 1 / -1;
+}
+
+.watchCrisisGroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--frame-gap);
+  min-width: 0;
+}
+
+.watchCrisisCount {
+  font-weight: 600;
+}
+
+.watchCrisis, .watchDecision {
+  display: grid;
+  align-content: start;
+  gap: var(--frame-gap);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.watchCrisis h3, .watchDecision h3 {
+  font: 600 var(--font-read-body)/1.55 var(--sans);
+}
+
+.watchDecision {
+  border-block-start: var(--frame-rule-width) solid var(--edge-control);
+  padding-block: var(--frame-gap);
+}
+
+.watchProse, .watchSummary {
+  max-width: var(--watch-prose-width);
+  font: 400 var(--font-read-body)/1.55 var(--sans);
+}
+
+.watchSummary {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.watchMatch, .watchKind, .watchCompact {
+  color: var(--text-2);
+}
+
+.watchPlaceFigure {
+  font-family: var(--mono);
+}
+
+.watchChoiceRow, .watchStamp {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--frame-gap);
+}
+
+.watchChoiceRow {
+  justify-content: space-between;
+}
+
+.watchChoice {
+  font: 600 var(--font-2xl)/1.55 var(--sans);
+}
+
+.watchKey {
+  display: inline-flex;
+  align-items: center;
+  align-self: start;
+  justify-self: start;
+  min-block-size: var(--frame-target-size);
+  min-inline-size: var(--frame-target-size);
+  padding-inline: var(--frame-gap);
+  color: var(--text-1);
+  background: transparent;
+  text-align: start;
+  text-decoration: underline;
+  font: 600 var(--font-read)/1.4 var(--sans);
+  cursor: pointer;
+
+  &:hover { background: var(--bg-panel); }
+  &:active { background: var(--bg-card); }
+}
+
+.watchKey:focus-visible, .watchHeading:focus-visible {
+  outline: var(--frame-rule-width) solid var(--amber);
+  outline-offset: var(--frame-rule-width);
+}
+
+.watchCompact, .watchPhoneHeading {
+  display: none;
+}
+
+.watchWaiting {
+  min-block-size: var(--frame-target-size);
+}
+
+@media (min-width: 768px) {
+  .watchCrisisGroup[data-first='true'] {
+    display: contents;
+
+    .watchCrisisCount { order: -2; }
+    .watchEvents { order: -1; }
+  }
+}
+
+@media (max-width: 767px) {
+  .watchTurn {
+    --watch-prose-width: 40ch;
+  }
+  .watchWideHeading {
+    display: none;
+  }
+  .watchPhoneHeading, .watchCompact {
+    display: block;
+  }
+  .watchColumns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .watchCrisisGroup .watchEvents {
+    order: 1;
+  }
+
+  .watchTurn[data-watch-place='1'] [data-watch-side='2'],
+  .watchTurn[data-watch-place='2'] [data-watch-side='1'],
+  .watchTurn[data-watch-place='1'] [data-watch-other='1'],
+  .watchTurn[data-watch-place='2'] [data-watch-other='2'] {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .watchDecision, .watchCrisis {
+    animation: watch-arrival var(--watch-fade-duration) ease-out;
+  }
+}
+
+@keyframes watch-arrival {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}

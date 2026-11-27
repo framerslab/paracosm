@@ -159,3 +159,19 @@ export function resolveSetupRedirectHref(currentHref: string, redirect: string |
   targetUrl.hash = '';
   return targetUrl.toString();
 }
+
+export function watchPlaceFromHref(href: string): number {
+  return new URL(href).searchParams.get('watchPlace') === '2' ? 1 : 0;
+}
+
+export function createWatchPlaceHref(href: string, place: number): string {
+  const url = new URL(href);
+  url.searchParams.set('watchPlace', place === 1 ? '2' : '1');
+  return url.toString();
+}
+
+export function createReportTurnHref(href: string, turn: number): string {
+  const url = new URL(createDashboardTabHref(href, 'reports'));
+  url.hash = `turn-${turn}`;
+  return url.toString();
+}

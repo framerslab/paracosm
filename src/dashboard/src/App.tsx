@@ -345,6 +345,10 @@ function AppContent() {
     setActiveTabState(tab);
     window.history.replaceState({}, '', createDashboardTabHref(window.location.href, tab));
   }, []);
+  const openReportTurn = useCallback((href: string) => {
+    setActiveTabState('reports');
+    window.history.replaceState({}, '', href);
+  }, []);
   const changeFrameTab = useCallback((tab: DashboardTab) => {
     if (tab !== activeTab) sendEvent('tab_change', { to: tab });
     setActiveTab(tab);
@@ -1102,7 +1106,7 @@ function AppContent() {
             <ShareLinkNote shared={shareLink.shared} onClose={shareLink.clear} />
           )}
           {/* The banner and finish notices share the launch gate. */}
-          {userTriggeredRun && (
+          {userTriggeredRun && !(activeTab === 'sim' && gameState.actorIds.length === 2) && (
             <VerdictBanner
               verdict={shownRunVerdict}
               runIdentity={shownRun}
@@ -1188,6 +1192,7 @@ function AppContent() {
                   <SimView
                     state={gameState}
                     sseStatus={sse.status}
+                    openReportTurn={openReportTurn}
                     verdict={sse.verdict}
                     shownRun={shownRun}
                     launching={launching}

@@ -287,22 +287,23 @@ function decisionsOf(artifact: unknown): Map<string, DecisionBarCheck | undefine
     const d = entry as { turn?: unknown; eventIndex?: unknown; barCheck?: unknown } | null;
     if (!d || typeof d.turn !== 'number') continue;
     const key = `${d.turn}:${typeof d.eventIndex === 'number' ? d.eventIndex : 0}`;
-    const b = (d.barCheck ?? null) as Record<string, unknown> | null;
-    if (!b || typeof b.boldChance !== 'number' || typeof b.bar !== 'number') {
-      checks.set(key, undefined);
-      continue;
-    }
-    checks.set(key, {
-      boldChance: b.boldChance,
-      bar: b.bar,
-      clearsBar: b.clearsBar === true,
-      choseBold: b.choseBold === true,
-      departs: b.departs === true,
-      departureFact: typeof b.departureFact === 'string' ? b.departureFact : '',
-      unexplained: b.unexplained === true,
-    });
+    checks.set(key, readBarCheck(d.barCheck));
   }
   return checks;
+}
+
+function readBarCheck(value: unknown): DecisionBarCheck | undefined {
+  const b = value as Record<string, unknown> | null | undefined;
+  if (!b || typeof b.boldChance !== 'number' || typeof b.bar !== 'number') return undefined;
+  return {
+    boldChance: b.boldChance,
+    bar: b.bar,
+    clearsBar: b.clearsBar === true,
+    choseBold: b.choseBold === true,
+    departs: b.departs === true,
+    departureFact: typeof b.departureFact === 'string' ? b.departureFact : '',
+    unexplained: b.unexplained === true,
+  };
 }
 
 /**
@@ -310,9 +311,8 @@ function decisionsOf(artifact: unknown): Map<string, DecisionBarCheck | undefine
  * useMemo by the hook below; exported for direct unit testing without a
  * React render context. `results` are the run's `result` events: a
  * leader's artifact keeps each decision's check against
- * the bar its prompt stated, which the stream's decision events do not
- * carry, so it is joined onto the outcome event of the same turn and event
- * (`_barCheck`) once the leader's result has arrived. A result names its
+ * the bar its prompt stated. Older outcomes can recover it from the
+ * result at the matching turn and event index. A result names its
  * leader by the runner's tag; the join goes by the name its artifact keeps.
  */
 export function computeGameState(sseEvents: SimEvent[], isComplete: boolean, results?: ReadonlyArray<RunResultForState>): GameState {
@@ -571,21 +571,34 @@ export function computeGameState(sseEvents: SimEvent[], isComplete: boolean, res
         s.pendingReasoning = dd.reasoning as string || '';
         s.pendingPolicies = (dd.selectedPolicies as string[]) || [];
         s.pendingAiWrittenFields = dd.aiWrittenFields;
+        s.events.push(processed);
         break;
 
       case 'outcome': {
         const outcome = dd.outcome as string || '';
         s.outcome = outcome;
         s.decisions++;
+        const barCheck = readBarCheck(dd.barCheck);
+        let decision: Record<string, unknown> | undefined;
+        for (let i = s.events.length - 1; i >= 0; i--) {
+          const event = s.events[i];
+          if (event.type === 'decision_made' && event.turn === processed.turn &&
+              Number(event.data.eventIndex ?? 0) === Number(dd.eventIndex ?? 0)) {
+            decision = event.data;
+            break;
+          }
+          if (event.type === 'turn_start' && event.turn === processed.turn) break;
+        }
         s.events.push({
           ...processed,
           data: {
             ...dd,
-            _decision: s.pendingDecision,
-            _rationale: s.pendingRationale,
-            _reasoning: s.pendingReasoning,
-            _policies: s.pendingPolicies,
-            aiWrittenFields: s.pendingAiWrittenFields,
+            _decision: decision?.decision ?? dd._decision ?? '',
+            _rationale: decision?.rationale ?? dd._rationale ?? '',
+            _reasoning: decision?.reasoning ?? dd._reasoning ?? '',
+            _policies: decision?.selectedPolicies ?? dd._policies ?? [],
+            aiWrittenFields: decision ? decision.aiWrittenFields : dd.aiWrittenFields,
+            ...(barCheck ? { _barCheck: barCheck } : {}),
           },
         });
         // Decision has resolved into an outcome — clear the pending

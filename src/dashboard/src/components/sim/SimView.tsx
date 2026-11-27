@@ -14,6 +14,9 @@ import { Timeline } from './Timeline';
 import { TurnGrid } from './TurnGrid';
 import { MultiActorTurnGrid } from './MultiActorTurnGrid';
 import { WatchGridPanels } from './WatchGridPanels';
+import { PairTurn } from './PairTurn';
+import { pairTurnAt } from './pair-turn';
+import { createReportTurnHref, createWatchPlaceHref, watchPlaceFromHref } from '../../tab-routing';
 import { SimFooterBar } from './SimFooterBar';
 import { RerunPanel } from './RerunPanel';
 import { VerdictPanel } from './VerdictCard';
@@ -29,6 +32,7 @@ import styles from './SimView.module.scss';
 interface SimViewProps {
   state: GameState;
   sseStatus?: string;
+  openReportTurn?: (href: string) => void;
   verdict?: Record<string, unknown> | null;
   /** Names the run the page shows. What the verdict's export key said
    *  about one run never shows on the next, the same saved file loaded
@@ -65,50 +69,7 @@ interface SimViewProps {
 // turn-aligned grid groups events by turn across both leaders so the
 // per-leader column is no longer a meaningful unit.
 
-/**
- * Compact introduction bar. The old full-paragraph version took three
- * text lines and shoved the actual sim columns below the fold on short
- * viewports. Now collapses to a single short headline with a show/hide
- * toggle; expanded body is only rendered when the user asks for it.
- */
-function IntroBar({ onDismiss }: { onDismiss: () => void }) {
-  const [expanded, setExpanded] = useState(false);
-  return (
-    <div
-      role="region"
-      aria-label="How to read the simulation"
-      className={styles.introBar}
-    >
-      <div className={styles.introBody}>
-        <b className={styles.introHeading}>How to read this:</b>{' '}
-        {expanded ? (
-          <>
-            Multiple commanders with different HEXACO profiles run the same seed side by side. Each turn, departments analyze in parallel and may forge a new computational tool in a QuickJS WebAssembly sandbox or reuse an existing one. Commanders decide. The settlement diverges. Click any tile in Viz to drill into a colonist; click any forge card to inspect the generated code.
-          </>
-        ) : (
-          <>
-            multiple commanders, one seed, divergent histories. HEXACO shapes every LLM call.{' '}
-            <button
-              onClick={() => setExpanded(true)}
-              className={styles.introExpandButton}
-            >
-              more
-            </button>
-          </>
-        )}
-      </div>
-      <button
-        onClick={onDismiss}
-        className={styles.introDismissButton}
-        aria-label="Dismiss introduction"
-      >
-        Got it
-      </button>
-    </div>
-  );
-}
-
-export function SimView({ state, sseStatus, verdict, shownRun, launching = false, interventionArtifact, interventionRunning, interventionState = state, onInterventionDismiss }: SimViewProps) {
+export function SimView({ state, sseStatus, openReportTurn, verdict, shownRun, launching = false, interventionArtifact, interventionRunning, interventionState = state, onInterventionDismiss }: SimViewProps) {
   const scenario = useScenarioContext();
   // Digital-twin short-circuit: when the dashboard receives an artifact
   // produced by simulateIntervention (subject + intervention populated),
@@ -207,15 +168,20 @@ export function SimView({ state, sseStatus, verdict, shownRun, launching = false
     ? { name: fallbackB.name, archetype: fallbackB.archetype ?? '', unit: fallbackB.unit ?? leaderUnit(scenario, 1), hexaco: (fallbackB.hexaco ?? {}) as LeaderInfo['hexaco'], instructions: fallbackB.instructions ?? '', quote: '' }
     : null;
 
-  const [showIntro, setShowIntro] = useState(() => {
-    if (typeof window === 'undefined') return true;
-    return localStorage.getItem('paracosm-intro-dismissed') !== '1';
-  });
-
-  const dismissIntro = () => {
-    setShowIntro(false);
-    localStorage.setItem('paracosm-intro-dismissed', '1');
+  const [place, setPlace] = useState(() => typeof window === 'undefined' ? 0 : watchPlaceFromHref(window.location.href));
+  const selectPlace = (next: number) => {
+    setPlace(next);
+    window.history.replaceState({}, '', createWatchPlaceHref(window.location.href, next));
   };
+  const [stack, setStack] = useState<string | null>(null);
+  const showingStack = stack === (shownRun ?? '');
+  const pair = state.actorIds.length === 2;
+  const pairTurns = useMemo(() => pair
+    ? [...new Set(state.actorIds.flatMap(id => state.actors[id].events.flatMap(e => e.turn && e.turn > 0 ? [e.turn] : [])))].sort((a, b) => a - b)
+    : [], [pair, state]);
+  const turn = pairTurns.at(-1) ?? 1;
+  const data = useMemo(() => pairTurnAt(state, turn), [state, turn]);
+  const reportHref = typeof window === 'undefined' ? `/sim?tab=reports#turn-${turn}` : createReportTurnHref(window.location.href, turn);
 
   // Build turn-event text for the shared stats bar
   const eventA = sideA?.event;
@@ -244,6 +210,46 @@ export function SimView({ state, sseStatus, verdict, shownRun, launching = false
   }
 
   const columnsVisible = state.isRunning || state.isComplete || hasEvents || sseStatus === 'connected';
+
+  if (pair) return (
+    <div className={styles.root}>
+      <div className={styles.scrollableBody}>
+        {state.isRunning && !state.isComplete && state.maxTurns > 0 && (
+          <div className={styles.progressBar}>
+            <span className={styles.progressLabel}>Turn {turn} / {state.maxTurns}</span>
+            <div className={styles.progressTrack}><div className={styles.progressFill} style={{ width: `${progressPercent}%` }} /></div>
+            <span className={styles.progressPercent}>{Math.round(progressPercent)}%</span>
+          </div>
+        )}
+        {showingStack ? <>
+          <WatchGridPanels state={state} place={place} onSelectPlace={selectPlace} />
+          <button type="button" className={styles.watchKey} onClick={() => {
+            setStack(null);
+            requestAnimationFrame(() => document.getElementById('watch-turn-heading')?.focus());
+          }}>Back to one turn at a time</button>
+          <TurnGrid state={state} />
+        </> : <PairTurn
+          key={`${shownRun}:${turn}`}
+          turn={turn} maxTurns={state.maxTurns} data={data} place={place}
+          noun={scenario.labels.eventNounSingular ?? 'crisis'}
+          metrics={scenario.ui.headerMetrics}
+          reportHref={reportHref}
+          firstEvidence={turn === (pairTurns[0] ?? 1)}
+          openReport={openReportTurn ? event => {
+            if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+            event.preventDefault();
+            openReportTurn(reportHref);
+          } : undefined}
+          grid={<WatchGridPanels state={state} place={place} onSelectPlace={selectPlace} />}
+        />}
+        {!showingStack && pairTurns.length >= 2 && <button type="button" className={styles.watchKey}
+          onClick={() => setStack(shownRun ?? '')}>Read all {pairTurns.length} turns at once</button>}
+        {state.isComplete && verdict?.winner != null && <VerdictPanel verdict={verdict} shownRun={shownRun} pairTone />}
+      </div>
+      <SimFooterBar citationRegistry={citationRegistry} toolRegistry={toolRegistry} />
+      <RerunPanel enabled={state.isComplete && !state.isRunning} />
+    </div>
+  );
 
   return (
     <div className={styles.root}>
@@ -361,7 +367,6 @@ export function SimView({ state, sseStatus, verdict, shownRun, launching = false
         </div>
       )}
 
-      {showIntro && (sideA?.events.length ?? 0) > 0 && <IntroBar onDismiss={dismissIntro} />}
 
       {/* DivergenceRail used to render here as its own full-width row.
           Per-turn divergence is already badged on each TurnRow header
@@ -438,11 +443,6 @@ export function SimView({ state, sseStatus, verdict, shownRun, launching = false
           panel a leader, in either layout. It stands above the turn rows,
           which keep a readable height under it. */}
       {columnsVisible && <WatchGridPanels state={state} />}
-      {columnsVisible && layout === 'side-by-side' && state.actorIds.length === 2 && (
-        <div className={styles.turnRows}>
-          <TurnGrid state={state} />
-        </div>
-      )}
       {columnsVisible && layout === 'side-by-side' && state.actorIds.length >= 3 && (
         <div className={styles.turnRows}>
           <MultiActorTurnGrid state={state} />

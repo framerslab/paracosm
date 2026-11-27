@@ -23,6 +23,7 @@
 import { useMemo } from 'react';
 import { useScenarioContext } from '../../App';
 import type { GameState, LeaderInfo } from '../../hooks/useGameState';
+import { OneRowScroller } from '../shared/OneRowScroller';
 import { CohortSwarmGrid } from '../viz/CohortSwarmGrid';
 import { DEFAULT_GRID_SETTINGS } from '../viz/grid/GridSettingsDrawer';
 import { LivingSwarmGrid } from '../viz/grid/LivingSwarmGrid';
@@ -50,7 +51,11 @@ function hexacoOf(leader: LeaderInfo | null | undefined) {
   };
 }
 
-export function WatchGridPanels({ state }: { state: GameState }) {
+export function WatchGridPanels({ state, place = 0, onSelectPlace }: {
+  state: GameState;
+  place?: number;
+  onSelectPlace?: (place: number) => void;
+}) {
   const scenario = useScenarioContext();
   const snapshotMap = useVizSnapshots(state);
   const { actorIds } = state;
@@ -58,7 +63,7 @@ export function WatchGridPanels({ state }: { state: GameState }) {
   const startTime = scenario.setup?.defaultStartTime;
 
   // Nothing until a roster has arrived.
-  if (!actorIds.some(id => (snapshotMap[id]?.length ?? 0) > 0)) return null;
+  if (actorIds.length !== 2 && !actorIds.some(id => (snapshotMap[id]?.length ?? 0) > 0)) return null;
 
   if (actorIds.length >= 3) {
     return (
@@ -82,7 +87,11 @@ export function WatchGridPanels({ state }: { state: GameState }) {
   const turns = [0, 1].map(index => latestTurn(snapshotMap[actorIds[index]]));
 
   return (
-    <div className={styles.pair} data-testid="watch-grid">
+    <div className={styles.pair} data-watch-place={place + 1} data-testid="watch-grid">
+      {onSelectPlace && <OneRowScroller label="leaders" role="group" ariaLabel="Shown colony" className={styles.placeSwitch}>
+        {actorIds.map((id, index) => <button key={id} type="button" className={styles.placeKey}
+          aria-pressed={place === index} onClick={() => onSelectPlace(index)}><span>{index + 1}</span> {id}</button>)}
+      </OneRowScroller>}
       {PAIR_SIDES.map(({ side, color }, index) => {
         const id = actorIds[index];
         if (!id) return null;
