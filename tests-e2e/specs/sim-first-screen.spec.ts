@@ -5700,6 +5700,9 @@ screenTest('the paste form estimate reads the batch', async ({ page }) => {
   // 24 leaders one at a time are 24 batches of about 5 minutes after 2 minutes of setup.
   await toActors(24);
   await expect(part).toContainText('122–183 min');
+  // A pair runs both leaders at once whatever the batch: one batch.
+  await toActors(2);
+  await expect(part).toContainText('7–11 min');
   batch = undefined;
   await page.reload();
   await expect(activeStart(root)).toBeVisible();

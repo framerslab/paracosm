@@ -71,9 +71,11 @@ test('key link focuses the mounted field', async ({ page }) => {
 
 test('a key field address is dropped on the Event Log and Settings stays open', async ({ page }) => {
   const log = page.getByRole('tab', { name: 'Event Log', exact: true });
+  // Answer the consent bar first: its key would take the focus the address puts in the field.
+  await page.goto('/sim');
+  await answerConsent(page);
   for (const [address, provider] of [['/sim?tab=settings#key-anthropic', 'anthropic'], ['/sim#key-openai', 'openai']] as const) {
     await page.goto(address);
-    await answerConsent(page);
     await expect(field(page, provider)).toBeFocused();
     await log.click();
     await expect(log).toHaveAttribute('aria-selected', 'true');
