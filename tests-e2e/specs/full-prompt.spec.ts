@@ -11,6 +11,8 @@ test.skip(!!process.env.PARACOSM_E2E_BASE_URL, 'The prompt spec uses the hosted 
 
 const trigger = 'See the full prompt';
 const ownModel = 'With your own API key, the model is the one chosen in Settings.';
+const serverModel = 'On this server, the model is the one chosen in Settings.';
+const notInRun = 'Paracosm writes new leaders for a run of this size, so this leader is not in the run Start launches. These are the words it gets in a run that includes it.';
 const headings = {
   system: '1. System prompt',
   opening: '2. Opening message',
@@ -126,7 +128,8 @@ test('a tab key sends only the preview mode and the installed server needs no mo
   await openRun(page, SERVERS.dashboard);
   const answer = await readFrom(page, opener(page), 1);
   expect(answer.model).toBeNull();
-  await expect(dialog(page).getByText(ownModel, { exact: true })).toBeVisible();
+  await expect(dialog(page).getByText(serverModel, { exact: true })).toBeVisible();
+  await expect(dialog(page)).not.toContainText('With your own API key');
 });
 
 test('a written place with blank orders opens its deterministic fill and a placeholder has no key', async ({ page }) => {
@@ -288,7 +291,7 @@ test('a blocked read, a 429 and offline each recover through one explicit retry'
 
   await context.setOffline(true);
   await opener(page).click();
-  await expect(dialog(page).getByText('You are offline. The prompt loads when you are back online.', { exact: true })).toBeVisible();
+  await expect(dialog(page).getByText('You are offline. Try again when you are back online.', { exact: true })).toBeVisible();
   await context.setOffline(false);
   await expect(retry(page)).toBeEnabled();
   expect(reads).toBe(3);
@@ -747,6 +750,9 @@ test('the existing grid and written comparison survive opening and closing at 2,
     const key = opener(cards.first());
     await readFrom(page, key, 1, true);
     await expect(dialog(page).getByRole('status')).toHaveText('Prompt loaded');
+    const note = dialog(page).getByText(notInRun, { exact: true });
+    if (size === 2) await expect(note).toHaveCount(0);
+    else await expect(note).toBeVisible();
     await close(page).click();
     await expect(key).toBeFocused();
     await expect(field).toHaveValue(String(size));
