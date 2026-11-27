@@ -1066,20 +1066,22 @@ async function generateLeaders(keys: Record<string, string>, maxSimsPerDay = 1):
 
 test("Quickstart actor generation answers key_refused when the provider refuses the visitor's key, with none of the provider's words", async () => {
   const restore = setHostKeys({ OPENAI_API_KEY: HOST_OPENAI_KEY, ANTHROPIC_API_KEY: HOST_ANTHROPIC_KEY });
-  const refusal = 'Incorrect API key provided: provider-refusal-marker.';
+  // A key of its own: one refusal opens the provider's breaker for that key, which the later tests' key must not share.
+  const refusedKey = 'refused-visitor-openai-key-for-this-test';
+  const refusal = 'The request was refused: provider-refusal-marker.';
   try {
     await withProviderWire(async calls => {
       await hosted(async api => {
-        const res = await api.cookied().post('/api/quickstart/generate-actors', { scenarioId: mars.id, count: 24, apiKey: VISITOR_OPENAI_KEY });
+        const res = await api.cookied().post('/api/quickstart/generate-actors', { scenarioId: mars.id, count: 24, apiKey: refusedKey });
         const text = await res.text();
         assert.equal(res.status, 401, text);
         assert.equal((JSON.parse(text) as { error?: string }).error, 'key_refused');
         assert.ok(!text.includes('provider-refusal-marker'), text);
         const made = modelCalls(calls);
         assert.ok(made.length > 0, 'the actor call was made');
-        for (const call of made) assert.equal(call.key, VISITOR_OPENAI_KEY, `${call.path}: only the visitor's key was tried`);
+        for (const call of made) assert.equal(call.key, refusedKey, `${call.path}: only the visitor's key was tried`);
       });
-    }, () => new Response(JSON.stringify({ error: { message: refusal, type: 'invalid_request_error', param: null, code: 'invalid_api_key' } }), {
+    }, () => new Response(JSON.stringify({ error: { message: refusal, type: 'invalid_request_error', param: null, code: null } }), {
       status: 401,
       headers: { 'content-type': 'application/json' },
     }));

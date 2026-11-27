@@ -235,6 +235,28 @@ for (const size of [24, 300]) {
   });
 }
 
+test('a written scenario whose leaders the provider refuses on the visitor key points to Settings, not an error code', async ({ browser }) => {
+  const { context, page } = await open(browser);
+  try {
+    await saveKey(page);
+    const scenario = await (await context.request.get('/scenario')).json();
+    await page.route('**/api/quickstart/compile-from-seed', route => route.fulfill({ json: { status: 'done', jobId: 'job-1', scenario } }));
+    await page.route('**/api/quickstart/ground-scenario', route => route.fulfill({ json: { skipped: true, reason: 'not configured' } }));
+    await page.route('**/api/quickstart/generate-actors', route => route.fulfill({
+      status: 401, json: { error: 'key_refused', message: 'The provider refused your API key.' },
+    }));
+    await page.goto('/sim');
+    await expect(startKey(page)).toBeEnabled();
+    const part = page.getByTestId('write-your-own');
+    await part.locator('[data-quickstart-seed]').fill('A harbour town loses its ferry for a season and two councils decide how to ration fuel. '.repeat(4));
+    await part.getByRole('button', { name: /^Generate \+ Run/ }).click();
+    await expect(page.getByRole('alert').filter({ hasText: 'Check your API key in Settings.' }).first()).toBeVisible();
+    await expect(page.getByText('key_refused')).toHaveCount(0);
+  } finally {
+    await context.close();
+  }
+});
+
 test('double presses through preflight and setup count one real launch', async ({ browser }) => {
   const { context, page, assertEvents } = await open(browser);
   const count = gate();
