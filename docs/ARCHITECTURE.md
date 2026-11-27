@@ -593,7 +593,7 @@ The banner grid holds the wordmark, the visitor's run allowance or payer, How it
 
 Reports, Studio, Visualization, Library and Settings load on demand through `lazyTab`. Each shows a loading state while its code arrives, a retry action on failure, and an offline message that gives way to the tab when the connection returns. Run and Watch ship with the page and can open offline. Empty Watch and Reports link to Run and offer the last saved replay when one is available.
 
-The active section and one shared `PageFoot` sit in the same page scroller. The footer holds the adults notice, site links and licence. When the consent bar is present, `useConsentControl` moves its Analytics choices button into the footer. While a run is open, `RunStatusBar` below the scroller shows its progress, status and cost.
+The active section and one shared `PageFoot` sit in the same page scroller. The footer holds the site links and licence. When the consent bar is present, `useConsentControl` moves its Analytics choices button into the footer. While a run is open, `RunStatusBar` below the scroller shows its progress, status and cost.
 
 Library holds server-saved replays and runs kept in the browser. Studio opens saved run files, and the dashboard accepts those files by drop on any tab. While a run is running, Library's Restore waits, Studio shows no Open a run file key and a dropped run file does not load, so the live stream's events never join a loaded run. Settings holds the stored-data controls. The header's run actions menu appears while a run is open.
 
@@ -612,7 +612,7 @@ The Run tab (`/sim`) opens on one screen a first-time visitor reads from the top
 | The colony at turn 0 | `SharedColonyPanel.tsx`, `startingColony.ts` | The living grid at rest, its cells the scenario's key people |
 | The run's size | `RunSize.tsx`, `runSize.helpers.ts`, `useRunSetup.ts` | A pair on the host's keys; 2 to 300 leaders on the visitor's own key or a self-hosted server, kept in `?size=` |
 | The leaders | `LeaderPair.tsx`, `ScoreRows.tsx` | Each leader's place, name, title, six HEXACO scores and written orders |
-| The notes | `FirstScreenNotes.tsx` | The leaders are fictional, they are AI and can be wrong, and anyone under 18 needs a parent's or guardian's permission; not for children under 13 |
+| The notes | `FirstScreenNotes.tsx` | The leaders are fictional, and they are AI and can be wrong. The age terms sit in the landing page's Terms section, not on the app's screens |
 | Start | `StartBand.tsx`, `launchFailure.ts` | The one key that starts a run, the run line, who pays, the day's limit and each failure. From its press until the run opens or fails, the size is held, no row of Other scenarios loads and the paste form sends nothing, so the run posted is the scenario on screen and one press starts one run. Only the run's own refusal (`POST /setup`) is the day's limit: a refusal by the route that writes the leaders, which has a limit of its own on the hosted demo, reads as a run that did not start. While the server's settings are unread and no key is saved, Start waits |
 | Other scenarios | `OtherScenarios.tsx` | A list that loads a scenario through `POST /scenario/switch` and a reload, and runs none |
 | Write your own scenario | `SeedInput.tsx` (`variant="pasteOnly"`) | The paste, URL and PDF form, which compiles a scenario from a brief and runs it |

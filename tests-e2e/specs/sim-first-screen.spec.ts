@@ -119,9 +119,9 @@
  *   key and asks the server for nothing. A draft of 200 characters or more
  *   holds Start, with a link to the draft and a key that clears it.
  * - The fictional note stands under the leaders' heading row, the AI note
- *   and the adults note above Start's notice, and the foot ends the page:
- *   the adults line, the site's links in one row, Analytics choices and the
- *   licence line. The idle tab shows no status, dollar figure or token count.
+ *   above Start's notice, and the foot ends the page: the site's links in one
+ *   row, Analytics choices and the licence line. No age line on any screen:
+ *   the age terms sit in the landing's Terms section. The idle tab shows no status, dollar figure or token count.
  *
  * - Every word and glyph meets its figure, every row stays one row, and the
  *   automated check finds no WCAG 2.2 A or AA failure.
@@ -4390,26 +4390,22 @@ screenTest('feature 13: the notes and the foot', async ({ page }) => {
         expect(fictionalBox.y).toBeGreaterThanOrEqual(sizeRow.y + sizeRow.height - 1);
         expect(fictionalBox.y + fictionalBox.height).toBeLessThanOrEqual(leaders.y + 1);
 
-        // The AI note and the adults note: two separate lines, above Start's notice.
+        // The AI note alone above Start's notice: the age terms sit in the landing's Terms section, never on the app's screens.
         const notes = root.getByTestId('first-screen-notes');
         const ai = notes.getByTestId('note-ai');
         const adults = notes.getByTestId('note-adults');
         await expect(ai).toHaveText(NOTE_AI);
-        await expect(adults).toHaveText(NOTE_ADULTS);
-        await expect(notes.locator('p')).toHaveCount(2);
-        for (const note of [fictional, ai, adults]) {
+        await expect(adults).toHaveCount(0);
+        await expect(notes).not.toContainText(NOTE_ADULTS);
+        await expect(notes.locator('p')).toHaveCount(1);
+        for (const note of [fictional, ai]) {
           const style = await styleOf(note);
           expect(style.size).toBe(18);
           expect(style.colour).toBe(ink);
         }
-        const [notesBox, aiBox, adultsBox, notice] = await Promise.all([box(notes), box(ai), box(adults), box(startParts(root).notice)]);
-        expect(notesBox.y + notesBox.height, 'the notes stand above Start’s notice').toBeLessThanOrEqual(notice.y + 1);
-        if (size === WIDE) {
-          expect(Math.abs(aiBox.y - adultsBox.y), 'side by side at the wide width').toBeLessThanOrEqual(1);
-          expect(adultsBox.x).toBeGreaterThanOrEqual(aiBox.x + aiBox.width - 1);
-        } else {
-          expect(adultsBox.y).toBeGreaterThanOrEqual(aiBox.y + aiBox.height - 1);
-        }
+        const [notesBox, aiBox, notice] = await Promise.all([box(notes), box(ai), box(startParts(root).notice)]);
+        expect(notesBox.y + notesBox.height, 'the note stands above Start’s notice').toBeLessThanOrEqual(notice.y + 1);
+        expect(aiBox.width, 'the AI note keeps the column').toBeGreaterThanOrEqual(notesBox.width - 1);
 
         // The idle screen says no status, no dollar figure and no token count.
         await expect(page.getByText('Idle', { exact: true }).filter({ visible: true })).toHaveCount(0);
@@ -4424,7 +4420,8 @@ screenTest('feature 13: the notes and the foot', async ({ page }) => {
 
         // The foot ends the page and scrolls with it.
         await expect(foot).toHaveRole('contentinfo');
-        await expect(foot.getByTestId('foot-adults')).toHaveText(NOTE_ADULTS);
+        await expect(foot.getByTestId('foot-adults')).toHaveCount(0);
+        await expect(foot).not.toContainText(NOTE_ADULTS);
         await expect(links).toHaveText(['Docs', 'GitHub', 'npm', 'Privacy']);
         await expect(links.nth(0)).toHaveAttribute('href', '/docs');
         await expect(links.nth(1)).toHaveAttribute('href', 'https://github.com/framerslab/paracosm');
@@ -4495,7 +4492,7 @@ screenTest('feature 13: the notes and the foot', async ({ page }) => {
       await expect(root.getByTestId('note-fictional')).toHaveText(NOTE_FICTIONAL);
       const notes = root.getByTestId('first-screen-notes');
       await expect(notes.getByTestId('note-ai')).toHaveText(NOTE_AI);
-      await expect(notes.getByTestId('note-adults')).toHaveText(NOTE_ADULTS);
+      await expect(notes.getByTestId('note-adults')).toHaveCount(0);
       const [notesBox, limit] = await Promise.all([box(notes), box(root.getByTestId('at-limit'))]);
       expect(notesBox.y + notesBox.height).toBeLessThanOrEqual(limit.y + 1);
     });
