@@ -161,6 +161,11 @@ jobs:
       - name: Toolbox log key and share link end-to-end test
         run: npx playwright test tests-e2e/specs/toolbox-log-and-share-link.spec.ts --project=chromium-desktop
 
+      - name: Full prompt end-to-end test
+        if: ${{ !cancelled() && steps.install-playwright.outcome == 'success' }}
+        run: npx playwright test tests-e2e/specs/full-prompt.spec.ts --project=chromium-desktop
+
+      # The shared upload includes the full-prompt/ captures.
       # The pictures that spec takes of each press at 390 and 1440 in both looks.
       - name: Upload the toolbox log key and share link pictures
         if: always()

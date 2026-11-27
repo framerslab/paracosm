@@ -42,6 +42,9 @@ import {
   type BarCheck,
   type DecisionRuleArgs,
   buildEffectsBlock,
+  commanderAgentOptions,
+} from './commander-prompt.js';
+import {
   resolveActiveDepartments,
   resolveEventDepartments,
   runDepartmentPromotions,
@@ -60,6 +63,7 @@ import { traitModelRegistry, type TraitProfile } from '../../engine/traits/index
 import { driftLeaderProfile } from '../../engine/traits/drift.js';
 import type { DepartmentReport, CommanderDecision, TurnArtifact } from '../contracts.js';
 import { SimulationKernel } from '../../engine/core/kernel.js';
+import { createRunKernel } from './run-kernel.js';
 import type { KeyPersonnel } from '../../engine/core/agent-generator.js';
 import { getResearchFromBundle } from '../research/scenario-research.js';
 import { createResearchMemory, researchEmergentEvent, type ResearchMemory } from '../research/research-memory.js';
@@ -720,10 +724,11 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
   // byte-equivalent to the one that produced the snapshot.
   const kernel = opts._resumeFrom
     ? SimulationKernel.fromSnapshot(opts._resumeFrom, sc.id, sc)
-    : new SimulationKernel(seed, leader.name, keyPersonnel, {
+    : createRunKernel({
+        seed,
+        keyPersonnel,
         startTime,
         initialPopulation: opts.initialPopulation,
-        scenario: sc,
         // StartingResources / StartingPolitics are subsets of the kernel's
         // Partial<WorldMetrics / WorldPolitics> shape. The kernel's types
         // carry index signatures for scenario-defined fields; the starter
@@ -732,7 +737,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
         startingPolitics: opts.startingPolitics as Partial<import('../../engine/core/state.js').WorldPolitics> | undefined,
         startingStatuses: opts.startingStatuses,
         startingEnvironment: opts.startingEnvironment,
-      });
+      }, leader, sc);
   // When forking, start the turn loop after the snapshot's turn.
   const firstTurn = opts._resumeFrom ? opts._resumeFrom.turn + 1 : 1;
   // Per-turn kernel snapshots captured when opts.captureSnapshots is on.
@@ -835,8 +840,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
     provider, model: modelConfig.commander,
     apiKey: providerApiKey,
     fallbackProviders: callFallbackProviders,
-    instructions: `${GENERAL_AUDIENCE_GUIDANCE}\n\n${leader.instructions}`,
-    personality: { openness: leaderHexaco.openness, conscientiousness: leaderHexaco.conscientiousness, extraversion: leaderHexaco.extraversion, agreeableness: leaderHexaco.agreeableness, emotionality: leaderHexaco.emotionality, honesty: leaderHexaco.honestyHumility },
+    ...commanderAgentOptions(leader, leaderHexaco),
     maxSteps: opts.execution?.commanderMaxSteps ?? DEFAULT_EXECUTION.commanderMaxSteps,
     // Commander outputs CommanderDecision JSON: rationale + reasoning +
     // selectedOptionId etc. Typical ~500-1500 output tokens; cap 3000

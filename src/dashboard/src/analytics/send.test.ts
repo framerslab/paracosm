@@ -112,3 +112,32 @@ test('delivery errors leave the action and the other destinations working', asyn
   assert.deepEqual(page.recordings, [['event', 'qs_view']]);
   await new Promise<void>(resolve => setImmediate(resolve));
 });
+
+
+test('full prompt opens reach only the allowed destinations with the fixed side', () => {
+  const name = 'qs_prompt_open';
+  const choices: Purpose[] = [];
+  const page = browser(choices);
+  sendEvent(name, { side: 'right' }, page.window);
+  assert.deepEqual([page.posts, page.measures, page.recordings], [[], [], []]);
+
+  choices.push('count');
+  sendEvent(name, { side: 'right' }, page.window);
+  assert.equal(page.posts.length, 1);
+  assert.equal((page.posts[0][1] as RequestInit).body, JSON.stringify({ n: name, u: '/sim', p: { side: 'right' } }));
+  assert.deepEqual([page.measures, page.recordings], [[], []]);
+
+  choices.splice(0, 1, 'measure');
+  sendEvent(name, { side: 'left' }, page.window);
+  assert.deepEqual(page.measures, [['event', name, { side: 'left', ...context }]]);
+  assert.equal(page.posts.length, 1);
+  assert.deepEqual(page.recordings, []);
+
+  choices.splice(0, 1, 'record');
+  sendEvent(name, { side: 'left' }, page.window);
+  assert.deepEqual(page.recordings, [['event', name]]);
+  choices.push('count', 'measure');
+  sendEvent(name, { side: 'right', name: 'marker' }, page.window);
+  sendEvent(name, { side: 'marker' }, page.window);
+  assert.deepEqual([page.posts.length, page.measures.length, page.recordings.length], [1, 1, 1]);
+});

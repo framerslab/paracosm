@@ -18,6 +18,7 @@ import {
 import { resolveEconomicsProfile } from '../runtime/economics/economics-profile.js';
 import { WorldModel } from '../runtime/world-model/index.js';
 import { handleSimulate, type SimulateDeps } from './routes/simulate.js';
+import { buildWrittenLeaderPrompt, PROMPT_MODE_HEADER, writtenLeaderCount } from './routes/leader-prompt.js';
 import { compileScenario as compileScenarioReal } from '../engine/compiler/index.js';
 import { marsScenario } from '../engine/scenarios/index.js';
 import { lunarScenario } from '../engine/scenarios/index.js';
@@ -896,6 +897,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   let countForwardWarnedAt = 0;
   /** The page views forwarded per address this minute, and the forwards open now. */
   const countEventLimit = new CountEventLimit();
+  const promptReadLimit = new CountEventLimit(60, 60_000);
   let countForwardsOpen = 0;
   const pickCookieSecure = serverMode === 'hosted_demo';
   /** The visitor whose compile installed each compiled scenario's brief. */
@@ -2715,6 +2717,47 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       } else {
         res.writeHead(404, headers);
         res.end(JSON.stringify({ error: `Unknown scenario: ${'unknown' in resolved ? resolved.unknown : resolved.notRunnable}` }));
+      }
+      return;
+    }
+
+    if (req.method === 'GET' && (req.url === '/leader-prompt' || req.url?.startsWith('/leader-prompt?'))) {
+      res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('Vary', `Cookie, ${PROMPT_MODE_HEADER}`);
+      res.setHeader('Content-Type', 'application/json');
+      const refuse = (status: number, error: string) => {
+        res.statusCode = status;
+        res.end(JSON.stringify({ error }));
+      };
+
+      const query = new URL(req.url, 'http://localhost').searchParams;
+      const [id, ...otherIds] = query.getAll('scenario');
+      const [rawPlace, ...otherPlaces] = query.getAll('place');
+      if (!id?.trim() || otherIds.length) return refuse(400, 'invalid_scenario');
+      const place = Number(rawPlace);
+      if (otherPlaces.length || !/^\d+$/.test(rawPlace ?? '') || place < 1 || place > MAX_SIMULATION_ACTORS) {
+        return refuse(400, 'invalid_place');
+      }
+      if (!promptReadLimit.take(IpRateLimiter.getIp(req, clientIpHeader))) {
+        res.setHeader('Retry-After', '60');
+        return refuse(429, 'prompt_read_limit');
+      }
+
+      const resolved = resolveRequestScenario(req);
+      if (!('scenario' in resolved)) return writeScenarioRefusal(res, resolved);
+      if (id !== resolved.scenario.id) return refuse(409, 'scenario_changed');
+      const written = writtenLeaderCount(resolved.scenario);
+      if (written === 0) return refuse(404, 'no_written_leaders');
+      if (place > written) return refuse(400, 'invalid_place');
+
+      const hostedDemo = serverMode === 'hosted_demo';
+      const own = req.headers[PROMPT_MODE_HEADER.toLowerCase()] === 'own';
+      const mode = !hostedDemo ? 'server' : own ? 'own' : 'host';
+      try {
+        const answer = buildWrittenLeaderPrompt(resolved.scenario, place, mode, hostedDemo);
+        res.end(JSON.stringify(answer));
+      } catch {
+        refuse(500, 'prompt_unavailable');
       }
       return;
     }
@@ -5486,6 +5529,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   // pending writes (flushed, so a restart reads every run back) and timers.
   (server as Server).on('close', () => {
     clearInterval(importCleanupTimer);
+    promptReadLimit.close();
     if (rateLimiter) rateLimiter.destroy();
     linkRetriesStopped = true;
     for (const timer of linkRetryTimers) clearTimeout(timer);

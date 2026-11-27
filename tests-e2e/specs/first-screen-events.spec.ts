@@ -430,6 +430,34 @@ for (const choice of ['own', 'team', 'neither', 'ready'] as const) {
   });
 }
 
+test('only opening the written prompt counts, including after switching the phone card', async ({ browser }) => {
+  const { context, page, assertEvents } = await open(browser, SERVERS.demo, { viewport: { width: 390, height: 844 } });
+  try {
+    let fail = true;
+    await page.route('**/leader-prompt?*', route => fail ? route.abort() : route.continue());
+    await page.goto('/sim');
+    await expect(startKey(page)).toBeEnabled();
+    const openPrompt = () => leaders(page).getByRole('button', { name: 'See the full prompt', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: /'s full prompt$/ });
+    await openPrompt();
+    const again = dialog.getByRole('button', { name: 'Try again', exact: true });
+    await expect(again).toBeVisible();
+    fail = false;
+    await again.click();
+    await expect(dialog.getByRole('status')).toHaveText('Prompt loaded');
+    await expect(dialog).toHaveAttribute('data-clarity-mask', 'True');
+    await dialog.getByRole('button', { name: '2. Opening message', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+    await leaders(page).getByRole('tab').nth(1).click();
+    await openPrompt();
+    await expect(dialog.getByRole('status')).toHaveText('Prompt loaded');
+    await page.keyboard.press('Escape');
+    await assertEvents([view('direct'), event('qs_prompt_open', { side: 'left' }), event('qs_pair_switch', { to: '2' }), event('qs_prompt_open', { side: 'right' })]);
+  } finally {
+    await context.close();
+  }
+});
+
 test('the installed dashboard sends nothing during actual Run and frame actions', async ({ browser }) => {
   const { context, page, posts, vendor, assertEvents } = await open(browser, SERVERS.dashboard);
   try {
@@ -437,6 +465,9 @@ test('the installed dashboard sends nothing during actual Run and frame actions'
     await page.goto('/sim');
     await expect(consent(page)).toHaveCount(0);
     await leaders(page).getByRole('tab').nth(1).click();
+    await leaders(page).getByRole('button', { name: 'See the full prompt', exact: true }).click();
+    await expect(page.getByRole('dialog', { name: /'s full prompt$/ }).getByRole('status')).toHaveText('Prompt loaded');
+    await page.keyboard.press('Escape');
     await helpKey(page).click();
     await page.keyboard.press('Escape');
     await openTab(page, 'sim');
@@ -472,8 +503,9 @@ for (const look of ['light', 'dark'] as const) {
         await expect(privacy.getByRole('heading', { name: 'Privacy', exact: true })).toBeVisible();
         const paragraphs = privacy.locator('p');
         for (const [lead, text] of [
-          ['Viewing the Run screen', /Plausible counts.*Google Analytics 4 measures.*Microsoft Clarity marks/],
+          ['Viewing the Run screen', /opening a leader’s full prompt.*Plausible counts.*Google Analytics 4 measures.*Microsoft Clarity marks/],
           ['Opening How it works', /switching between the two leaders.*choosing a section.*Plausible.*Google Analytics 4/],
+          ['To apply its usage limits', /counts full prompt reads separately by IP address in memory for one minute/],
           ['To run a simulation', /OpenAI or Anthropic.*orders you write for a leader/],
           ['Our server saves finished runs', /visitor cookie lets this browser list your saved runs.*runs our team has pinned/],
           ['Anyone with a replay link', /watch that run.*orders you wrote that appear in the replay.*original brief is visible only to your browser/],
@@ -546,7 +578,7 @@ const BODY_LEADS = [
 ] as const;
 const NAMED_EVENTS: readonly FirstScreenEventName[] = [
   'qs_view', 'qs_start', 'run_started', 'run_failed', 'qs_how_open',
-  'qs_no_run_left_view', 'qs_no_run_left_action', 'qs_pair_switch', 'tab_change',
+  'qs_no_run_left_view', 'qs_no_run_left_action', 'qs_pair_switch', 'qs_prompt_open', 'tab_change',
 ];
 /** WCAG 1.4.12's text spacing, as the W3C's bookmarklet sets it, on the privacy section. */
 const PRIVACY_TEXT_SPACING = [
@@ -799,7 +831,7 @@ test('the privacy section shows at once and reads whole under reduced motion', a
   }
 });
 
-test('the API guide names the nine dashboard events the count route takes', () => {
+test('the API guide names the ten dashboard events the count route takes', () => {
   const guide = readFileSync(new URL('../../docs/HTTP_API.md', import.meta.url), 'utf8');
   const start = guide.indexOf('## `POST /api/event`');
   expect(start, 'the guide has a section for the count route').toBeGreaterThan(-1);
@@ -807,6 +839,7 @@ test('the API guide names the nine dashboard events the count route takes', () =
   const section = guide.slice(start, end === -1 ? undefined : end);
   for (const name of NAMED_EVENTS) expect.soft(section, name).toContain('`' + name + '`');
   expect(section, 'the named event body').toContain('"n": "qs_pair_switch"');
+  expect(section, 'the prompt event accepts only the two sides').toContain('| `qs_prompt_open` | A written leader’s full prompt opens | `side`: `left`, `right` | Yes |');
   expect(section, 'the page view body').toContain('{ "n": "pageview", "u": "/sim" }');
 });
 

@@ -495,3 +495,44 @@ export const NOTE_FICTIONAL = 'Leaders are fictional characters.';
 
 /** Above Start's notice. */
 export const NOTE_AI = 'The leaders are AI agents. Everything they say is written by a language model and can be wrong.';
+
+/** The written leader's prompt key. */
+export const SEE_FULL_PROMPT = 'See the full prompt';
+
+/** Copy for the read-only commander input dialog. */
+export const FULL_PROMPT = {
+  title: (name: string) => `${name}'s full prompt`,
+  opening: 'Opening…',
+  close: 'Close',
+  lead: "Everything this leader is given, in three parts. Parts 1 and 2 are exactly what the model receives. Part 3 is a sample of a turn. The model's own hidden reasoning is not here, because Paracosm does not receive it.",
+  sections: 'Prompt parts',
+  system: '1. System prompt',
+  systemNote: "The standing instructions the model reads first: the leader's orders and a description of its personality written from its six trait scores. A line that starts with ## marks a heading in that text.",
+  systemNoteOther: "The standing instructions the model reads first: the leader's orders and a description of its personality. A line that starts with ## marks a heading in that text.",
+  openingMessage: '2. Opening message',
+  openingNote: 'Sent once, before turn 1. It says what the leader leads and repeats its personality as a decision style.',
+  sample: '3. A sample turn',
+  sampleNote: "The shape of what the leader receives each turn: the event, the department reports, the state, the options, and the leader's decision rule. The event and the reports are written during a run by other AI agents, so this sample marks where they go.",
+  hexaco: 'HEXACO is a six-trait personality model: openness, conscientiousness, extraversion, agreeableness, emotionality and honesty-humility, each scored 0 to 1.',
+  scoreLabel: (name: string, scores: string) => `${name}'s six scores: ${scores}`,
+  speaks: (name: string, names: string) => `For ${name}: ${names}.`,
+  middle: (name: string) => `For ${name}: every score is near the middle, so part 1 has no personality section.`,
+  scoreRule: "Each score far from the middle adds one line to part 1's personality section.",
+  twice: 'The leader hears about its personality twice, here and in the opening message. The two use different cut-offs, so a middling score can speak in one and stay quiet in the other.',
+  barNote: "Bar: the chance at which this leader's rule says to take the bold option. The leader's personality sets it. The number here is the bar at the start of a run.",
+  bar: (value: number) => `${value} in 100`,
+  freeModel: 'Model on a free run:',
+  ownModel: 'With your own API key, the model is the one chosen in Settings.',
+  serverModel: 'On this server, the model is the one chosen in Settings.',
+  notInRun: 'Paracosm writes new leaders for a run of this size, so this leader is not in the run Start launches. These are the words it gets in a run that includes it.',
+  filled: 'This leader had no written orders, so Paracosm wrote these from its title and temperament.',
+  loading: 'Loading the prompt',
+  loaded: 'Prompt loaded',
+  failed: 'The prompt did not load.',
+  changed: 'The scenario has changed since this page loaded. Reload to read its leaders.',
+  offline: 'You are offline. Try again when you are back online.',
+  limited: 'Too many requests from this connection. Try again in a minute.',
+  retry: 'Try again',
+  trying: 'Trying…',
+  reload: 'Reload',
+} as const;
