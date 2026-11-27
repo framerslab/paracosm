@@ -117,6 +117,7 @@ test('a long winner name leaves every word of the verdict headline whole at 800p
     return words;
   });
   expect(broken, 'no word of the headline breaks across lines').toEqual([]);
+  await banner.screenshot({ path: 'test-pictures/sim-first-screen/ai-marks/verdict-long-winner-800.png', animations: 'disabled' });
 });
 
 async function expectMark(text: Locator) {
@@ -741,6 +742,10 @@ for (const width of [390, 1280]) {
       { sameRow, whiteSpace: 'nowrap' },
       { sameRow, whiteSpace: 'nowrap' },
     ]);
+    await page.locator('.leaders-row').filter({ visible: true }).screenshot({
+      path: `test-pictures/sim-first-screen/ai-marks/leader-bios-${width}.png`,
+      animations: 'disabled',
+    });
   });
 }
 
