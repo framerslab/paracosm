@@ -370,7 +370,7 @@ test('the served privacy section explains who receives the first-screen events',
   const privacy = section('privacy');
   const paragraphs = [...privacy.matchAll(/<p\b[^>]*>(.*?)<\/p>/gs)].map(match => wordsOf(match[1]));
   const launches = paragraphs.find(text => text.includes('Viewing the Run screen')) ?? '';
-  for (const action of ['pressing Start', 'a run opening or failing to start', 'seeing the daily limit', 'choosing a replay or Settings']) {
+  for (const action of ['pressing Start', 'opening a leader’s full prompt', 'a run opening or failing to start', 'seeing the daily limit', 'choosing a replay or Settings']) {
     assert.ok(launches.includes(action), action);
   }
   assert.match(launches, /Plausible counts.*Google Analytics 4 measures.*with your permission.*Microsoft Clarity marks.*by name.*recording/s);
@@ -378,6 +378,7 @@ test('the served privacy section explains who receives the first-screen events',
   const navigation = paragraphs.find(text => text.includes('Opening How it works')) ?? '';
   assert.match(navigation, /switching between the two leaders.*choosing a section.*Plausible.*Google Analytics 4.*permission/s);
   assert.doesNotMatch(navigation, /Clarity/);
+  assert.match(privacy, /counts full prompt reads separately by IP address in memory for one minute/);
   assert.match(privacy, /only fixed choices and ranges for the number of leaders/);
   assert.match(privacy, /count runs before you answer/);
   assert.match(privacy, /Reject all or its switch stops it/);

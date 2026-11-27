@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import type { LeaderPromptAnswer } from '../../src/api/leader-prompt.js';
 import { marsScenario } from '../../src/engine/scenarios/index.js';
-import { SERVERS } from '../support/frame.js';
+import { scaleText, SERVERS } from '../support/frame.js';
 
 test.skip(!!process.env.PARACOSM_E2E_BASE_URL, 'The prompt spec uses the hosted and installed fixture servers.');
 
@@ -163,6 +163,237 @@ test('an exhausted daily allowance leaves the prompt readable and the count unch
     }
     expect(await quota()).toEqual(spent);
   } finally {
-    await page.request.post(SERVERS.demo + '/cancel');
+    await page.request.post(SERVERS.demo + '/clear');
   }
 });
+
+const close = (page: Page) => dialog(page).getByRole('button', { name: 'Close', exact: true });
+const retry = (page: Page) => dialog(page).getByRole('button', { name: 'Try again', exact: true });
+const routePrompt = '**/leader-prompt?*';
+
+function gate() {
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  return { held, release };
+}
+
+test('slow input opens immediately and a closed request cannot paint into another leader', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openRun(page);
+  const held = gate();
+  const received = gate();
+  let reads = 0;
+  await page.route(routePrompt, async route => {
+    if (++reads !== 1) return route.continue();
+    try {
+      const response = await route.fetch();
+      received.release();
+      await held.held;
+      await route.fulfill({ response }).catch(() => {});
+    } finally {
+      received.release();
+    }
+  });
+  const key = opener(page);
+  await key.evaluate(element => { element.click(); element.click(); });
+  await received.held;
+  const panel = dialog(page);
+  await expect(panel.getByRole('heading', { level: 2 })).toBeFocused();
+  await expect(panel.getByRole('heading', { level: 3 })).toHaveText(Object.values(headings).map(title => new RegExp(title.replace('.', '\\.'))));
+  await expect(panel.getByTestId('prompt-skeleton')).toHaveCount(3);
+  await expect(panel.locator('[aria-busy]')).toHaveAttribute('aria-busy', 'true');
+  await expect(panel.getByRole('status')).toHaveText('Loading the prompt');
+  expect(reads).toBe(1);
+  await page.keyboard.press('Escape');
+  await expect(key).toBeFocused();
+
+  await leaderTab(page, 'Dietrich Voss').click();
+  const answer = await readFrom(page, opener(page), 2);
+  await expect(panel.getByRole('status')).toHaveText('Prompt loaded');
+  held.release();
+  await expectParts(panel, answer);
+  await expect(panel).not.toContainText(mars.presets[0].leaders[0].instructions);
+  await close(page).click();
+  await expect(opener(page)).toBeFocused();
+  await readFrom(page, opener(page), 2);
+  expect(reads).toBe(3);
+});
+
+test('a payer change discards the held host answer without moving the phone header', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await openRun(page);
+  const held = gate();
+  const received = gate();
+  await page.route(routePrompt, async route => {
+    if (route.request().headers()['x-paracosm-prompt-mode'] === 'own') return route.continue();
+    try {
+      const response = await route.fetch();
+      received.release();
+      await held.held;
+      await route.fulfill({ response }).catch(() => {});
+    } finally {
+      received.release();
+    }
+  });
+  await opener(page).click();
+  await received.held;
+  const panel = dialog(page);
+  const title = panel.getByRole('heading', { level: 2 });
+  const part = panel.getByRole('heading', { name: headings.system, level: 3, exact: true });
+  const before = [await title.boundingBox(), await part.boundingBox()].map(box => box?.y);
+  const response = promptResponse(page);
+  await page.evaluate(() => {
+    sessionStorage.setItem('paracosm:keyOverrides', JSON.stringify({ openai: 'fixture-mode-change' }));
+    window.dispatchEvent(new Event('paracosm:key-overrides-changed'));
+  });
+  const result = await response;
+  expect(result.request().headers()['x-paracosm-prompt-mode']).toBe('own');
+  await expect(panel.getByRole('status')).toHaveText('Prompt loaded');
+  held.release();
+  expect([await title.boundingBox(), await part.boundingBox()].map(box => box?.y)).toEqual(before);
+  await expect(panel.getByText(ownModel, { exact: true })).toBeVisible();
+  await expectParts(panel, await result.json());
+});
+
+test('a blocked read, a 429 and offline each recover through one explicit retry', async ({ page, context }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openRun(page);
+  const held = gate();
+  let reads = 0;
+  await page.route(routePrompt, async route => {
+    switch (++reads) {
+      case 1: return route.abort();
+      case 2: return route.fulfill({ status: 429, json: { error: 'prompt_read_limit' } });
+      case 3: await held.held; break;
+    }
+    return route.continue();
+  });
+  await opener(page).click();
+  await expect(dialog(page).getByText('The prompt did not load.', { exact: true })).toBeVisible();
+  const bounds = await retry(page).boundingBox();
+  expect(bounds?.width).toBeGreaterThanOrEqual(96);
+  expect(bounds?.height).toBeGreaterThanOrEqual(44);
+  await retry(page).click();
+  await expect(dialog(page).getByText('Too many requests from this connection. Try again in a minute.', { exact: true })).toBeVisible();
+  await retry(page).evaluate(element => { element.click(); element.click(); });
+  await expect(dialog(page).getByRole('button', { name: 'Trying…' })).toBeDisabled();
+  await expect.poll(() => reads).toBe(3);
+  held.release();
+  await expect(dialog(page).getByRole('status')).toHaveText('Prompt loaded');
+  await close(page).click();
+
+  await context.setOffline(true);
+  await opener(page).click();
+  await expect(dialog(page).getByText('You are offline. The prompt loads when you are back online.', { exact: true })).toBeVisible();
+  await context.setOffline(false);
+  await expect(retry(page)).toBeEnabled();
+  expect(reads).toBe(3);
+  await retry(page).click();
+  await expect(dialog(page).getByRole('status')).toHaveText('Prompt loaded');
+  expect(reads).toBe(4);
+});
+
+test('a second tab can change the scenario and Reload replaces the stale leaders', async ({ context, page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openRun(page);
+  const second = await context.newPage();
+  await openRun(second);
+  expect((await second.request.post(SERVERS.demo + '/scenario/switch', { data: { id: 'lunar-outpost' } })).ok()).toBe(true);
+  await opener(page).click();
+  await expect(dialog(page).getByText('The scenario has changed since this page loaded. Reload to read its leaders.', { exact: true })).toBeVisible();
+  await dialog(page).getByRole('button', { name: 'Reload', exact: true }).click();
+  await expect(leaderTab(page, 'Commander Sarah Lindgren')).toBeVisible();
+  expect((await readFrom(page, opener(page), 1)).scenarioId).toBe('lunar-outpost');
+});
+
+test('keyboard wraps inside the desktop dialog and jumps land below its header', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 844 });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await openRun(page);
+  const key = opener(page.getByRole('article', { name: 'Dietrich Voss', exact: true }));
+  await key.scrollIntoViewIfNeeded();
+  const scrollBefore = await key.evaluate(element => {
+    for (let node = element.parentElement; node; node = node.parentElement) {
+      if (node.scrollTop) return node.scrollTop;
+    }
+    return window.scrollY;
+  });
+  await readFrom(page, key, 2);
+  const panel = dialog(page);
+  await expect(panel.getByRole('heading', { level: 2 })).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(close(page)).toBeFocused();
+  const last = panel.locator('blockquote').last();
+  await page.keyboard.press('Shift+Tab');
+  await expect(last).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(close(page)).toBeFocused();
+  const link = panel.getByRole('link', { name: headings.sampleTurn, exact: true });
+  await link.click();
+  await expect(link).toHaveAttribute('aria-current', 'location');
+  const part = panel.getByRole('heading', { level: 3, name: headings.sampleTurn, exact: true });
+  expect((await part.boundingBox())!.y).toBeGreaterThanOrEqual((await close(page).boundingBox())!.y + 44);
+  await close(page).click();
+  await expect(key).toBeFocused();
+  expect(await key.evaluate(element => {
+    for (let node = element.parentElement; node; node = node.parentElement) {
+      if (node.scrollTop) return node.scrollTop;
+    }
+    return window.scrollY;
+  })).toBe(scrollBefore);
+});
+
+test('phone headings open independently and prompt text reflows with 200% text spacing', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 844 });
+  await openRun(page);
+  await readFrom(page, opener(page), 1);
+  const panel = dialog(page);
+  const system = panel.getByRole('heading', { name: headings.system, exact: true }).getByRole('button');
+  const opening = panel.getByRole('heading', { name: headings.opening, exact: true }).getByRole('button');
+  await expect(system).toHaveAttribute('aria-expanded', 'true');
+  await opening.click();
+  await expect(opening).toHaveAttribute('aria-expanded', 'true');
+  await system.click();
+  await expect(system).toHaveAttribute('aria-expanded', 'false');
+  await expect(opening).toHaveAttribute('aria-expanded', 'true');
+  await scaleText(page, 2);
+  await page.addStyleTag({ content: 'dialog, dialog * { line-height: 1.5 !important; letter-spacing: .12em !important; word-spacing: .16em !important; }' });
+  await expect(close(page)).toBeVisible();
+  expect(await panel.evaluate(el => [el, ...el.querySelectorAll('div, blockquote, h2, h3')]
+    .filter(node => node.clientWidth > 0 && node.scrollWidth > node.clientWidth + 1).map(node => node.tagName))).toEqual([]);
+});
+
+for (const width of [390, 1440]) {
+  for (const look of ['light', 'dark'] as const) {
+    test(`captures the Mars prompt and Privacy at ${width}px in ${look}`, async ({ browser }) => {
+      const context = await browser.newContext({ viewport: { width, height: 844 }, deviceScaleFactor: 2, reducedMotion: 'reduce' });
+      try {
+        await context.addInitScript(theme => localStorage.setItem('paracosm-theme', theme), look);
+        const page = await context.newPage();
+        await openRun(page);
+        await page.evaluate(() => document.fonts.ready.then(() => undefined));
+        const root = width === 390 ? page : page.getByRole('article', { name: 'Aria Chen', exact: true });
+        const key = opener(root);
+        await key.scrollIntoViewIfNeeded();
+        const snap = (surface: string) => page.screenshot({
+          path: `test-pictures/sim-first-screen/full-prompt/${surface}-${width}-${look}.png`,
+          animations: 'disabled',
+        });
+        await snap('card');
+        await readFrom(page, key, 1);
+        await expect(dialog(page).getByRole('status')).toHaveText('Prompt loaded');
+        await snap('dialog');
+        await close(page).click();
+        await page.goto(SERVERS.demo + '/#privacy');
+        await page.evaluate(() => document.fonts.ready.then(() => undefined));
+        const paragraph = page.locator('#privacy p').filter({ hasText: 'opening a leader’s full prompt' });
+        await paragraph.evaluate(el => el.scrollIntoView({ block: 'center' }));
+        await expect(paragraph).toBeInViewport();
+        await snap('privacy');
+      } finally {
+        await context.close();
+      }
+    });
+  }
+}
