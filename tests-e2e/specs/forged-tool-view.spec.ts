@@ -309,6 +309,7 @@ test.describe('feature 1 on the run\'s record', () => {
         await expect(description).toBeVisible();
         await expect(description).toHaveAttribute('data-ai-generated', 'true');
         expect(await passed.innerText()).not.toContain('Written by an AI model during this paracosm run');
+        expect(await passed.innerText()).not.toContain('AI-written');
         await expect(passed.getByText('The reason the run recorded')).toHaveCount(0);
         await picture(page, `${size.width}-${look}-f1-passed`);
         await requestKey.click();
@@ -336,6 +337,7 @@ test.describe('feature 1 on the run\'s record', () => {
         await expect(failed.getByText(RADIATION_REASON, { exact: true })).toBeVisible();
         await expect(failed.getByText('The run\'s record keeps at most 240 characters of this reason.', { exact: true })).toBeVisible();
         expect(await failed.innerText()).not.toContain('Written by an AI model during this paracosm run');
+        expect(await failed.innerText()).not.toContain('AI-written');
         await picture(page, `${size.width}-${look}-f1-did-not-pass`);
         await failed.getByRole('button', { name: 'Close the trace' }).click();
         await expect(failed).toBeHidden();
