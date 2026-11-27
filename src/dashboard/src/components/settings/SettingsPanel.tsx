@@ -438,7 +438,13 @@ export function SettingsPanel({ events = [], initialSubTab = 'config', onClearLo
   // A key counts as the server reads it: a blank or masked value (`sk-...`)
   // is no key, so it neither unlocks the page nor is posted.
   const hasSessionLlmKey = hasSessionProviderKey(keyOverrides);
-  const savedProvider = hasSessionLlmKey && hasSessionProviderKey(readTabKeyOverrides());
+  // Saved means this tab holds the provider keys the form shows: a write the
+  // browser refused leaves the old value, or none, behind.
+  const formProviderKeys = sessionProviderKeys(keyOverrides);
+  const tabProviderKeys = sessionProviderKeys(readTabKeyOverrides());
+  const savedProvider = hasSessionLlmKey
+    && tabProviderKeys.apiKey === formProviderKeys.apiKey
+    && tabProviderKeys.anthropicKey === formProviderKeys.anthropicKey;
   const hasEnvLlmKey = !!envKeys.openai || !!envKeys.anthropic;
   const canPickModels = hasSessionLlmKey || (!hostedDemo && hasEnvLlmKey);
   // `hasUserLlmKey` controls whether launch() attaches `config.models`.

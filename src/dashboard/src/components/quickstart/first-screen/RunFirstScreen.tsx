@@ -105,6 +105,7 @@ function FirstScreen({ onStart, onSeedReady }: Pick<RunFirstScreenProps, 'onStar
           variant="pasteOnly"
           locked={starting}
           payer={who}
+          batch={facts.adminConfig.batch?.maxConcurrency}
           atLimit={atLimit}
           onSeedReady={onSeedReady}
           seedText={draft}

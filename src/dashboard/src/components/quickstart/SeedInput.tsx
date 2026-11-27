@@ -44,6 +44,12 @@ export interface SeedInputProps {
    */
   payer?: Payer;
   /**
+   * How many leaders the server runs at once on the default profile
+   * (`batch.maxConcurrency` from GET /admin-config). The time estimate
+   * counts batches of this size, 8 when the server does not say.
+   */
+  batch?: number;
+  /**
    * No free run is left today on the host's keys: the at-limit sentences
    * stand above the key, with the reset time when the server said it, and
    * the key asks the server for nothing.
@@ -87,6 +93,7 @@ export function SeedInput({
   disabled = false,
   variant = 'full',
   payer,
+  batch,
   atLimit = null,
   seedText: heldText,
   onSeedTextChange,
@@ -443,7 +450,7 @@ export function SeedInput({
           aria-label="Number of parallel actors to run"
         />
         <span className={styles.actorCountPreview} aria-live="polite">
-          ~${estimateQuickstartCostUSD(actorCount).toFixed(2)} · {wallTimeEstimate(actorCount)}
+          ~${estimateQuickstartCostUSD(actorCount).toFixed(2)} · {wallTimeEstimate(actorCount, batch)}
         </span>
       </div>
       )}
@@ -486,16 +493,14 @@ function settingsHref(): string {
 }
 
 /** Rough wall-time estimate for the cost-preview tile. The batch
- *  runner now respects `economics.batch.maxConcurrency` (default 8 on
- *  the balanced profile) so this models 8-actor batches landing
- *  sequentially rather than the old "3 in parallel, ~5 min per batch"
- *  shape. Compile/ground/actor-gen baseline holds at ~2 min. Returns
- *  a "X-Y min" range padded to a 1.5x ceiling. */
-function wallTimeEstimate(count: number): string {
+ *  runner keeps `batchSize` leaders in flight at once (the server's
+ *  default, 8 on the balanced profile), so this models batches of that
+ *  size landing one after another. Compile/ground/actor-gen baseline
+ *  holds at ~2 min. Returns a "X-Y min" range padded to a 1.5x ceiling. */
+function wallTimeEstimate(count: number, batchSize = 8): string {
   if (count <= 0) return '—';
   const baselineMin = 2;
   const perBatchMin = 5;
-  const batchSize = 8;
   const batches = Math.max(1, Math.ceil(count / batchSize));
   const lo = baselineMin + perBatchMin * batches;
   const hi = Math.ceil(lo * 1.5);

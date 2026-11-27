@@ -114,7 +114,9 @@ interface HostedScenarioFacts {
 
 function hostedScenarioFacts(sc: ScenarioPackage): HostedScenarioFacts {
   const text = (value: unknown) => typeof value === 'string' && value.trim() ? value.trim() : undefined;
-  const firstPreset = sc.presets?.[0]?.leaders;
+  // Older compiles wrote the first preset's leaders as `actors`; Start runs either.
+  const preset = sc.presets?.[0] as { leaders?: unknown; actors?: unknown } | undefined;
+  const firstPreset = (preset?.leaders ?? preset?.actors) as Array<{ name?: unknown } | null> | undefined;
   const leaders = Array.isArray(firstPreset)
     ? firstPreset.map(leader => text(leader?.name)).filter((name): name is string => name !== undefined)
     : [];
