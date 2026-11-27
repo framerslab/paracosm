@@ -184,3 +184,17 @@ test('StreamEventSchema accepts event without turn or time (pre-turn phase)', ()
 test('STREAM_EVENT_TYPES has exactly 17 entries matching the spec', () => {
   assert.equal(STREAM_EVENT_TYPES.length, 17);
 });
+
+test('an outcome retains its optional recorded bar check through validation', () => {
+  const outcome = validFixtures.outcome as { data: Record<string, unknown> };
+  const barCheck = {
+    boldChance: 62, bar: 81, clearsBar: false, choseBold: true,
+    departs: true, departureFact: 'the water reserve was empty', unexplained: false,
+  };
+  const parsed = StreamEventSchema.parse({ ...outcome, data: { ...outcome.data, barCheck } });
+  assert.equal(parsed.type, 'outcome');
+  assert.deepEqual(Reflect.get(parsed.data, 'barCheck'), barCheck);
+  assert.equal(StreamEventSchema.safeParse({
+    ...outcome, data: { ...outcome.data, barCheck: { ...barCheck, departs: 'yes' } },
+  }).success, false);
+});

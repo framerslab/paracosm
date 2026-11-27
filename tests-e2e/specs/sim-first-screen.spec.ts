@@ -3067,9 +3067,8 @@ async function expectAtlasVerdictAndNotices(page: Page): Promise<{ complete: Loc
     .getByRole('status', { name: /^Simulation status: Complete\./ });
   await expect(complete).toBeVisible();
   const banner = page.getByRole('status', { name: 'Simulation verdict' });
-  await expect(banner).toBeVisible();
-  await expect(banner.getByText('Priya Kapoor wins', { exact: true })).toBeVisible();
-  await expect(banner.getByRole('button', { name: 'Priya ships a cleaner model' })).toBeVisible();
+  await expect(banner).toHaveCount(0);
+  await expect(page.locator('#tabpanel-sim').getByText('Priya ships a cleaner model', { exact: true })).toBeVisible();
 
   const notifications = page.getByRole('status', { name: 'Notifications' });
   const titles = ['Simulation complete', 'Priya Kapoor wins', 'Saved to cache'];
@@ -3223,6 +3222,7 @@ screenTest('a dismissed banner returns for a new run with the same winner and he
     await openReadyAt(page, '/sim', WIDE, 'dark', 'Atlas Lab');
     const firstKey = await launchFromSettings(page);
     await expectAtlasVerdictAndNotices(page);
+    await openTab(page, 'reports');
     const banner = page.getByRole('status', { name: 'Simulation verdict' });
     await banner.getByRole('button', { name: 'Dismiss verdict banner' }).click();
     await expect(banner).toHaveCount(0);
@@ -3230,6 +3230,7 @@ screenTest('a dismissed banner returns for a new run with the same winner and he
     await secondAddress(context, info, 25);
     const nextKey = await launchFromSettings(page);
     expect(nextKey).not.toBe(firstKey);
+    await openTab(page, 'reports');
     await expect(banner.getByText('Priya Kapoor wins', { exact: true })).toBeVisible();
     await expect(banner.getByRole('button', { name: 'Priya ships a cleaner model' })).toBeVisible();
   } finally {
@@ -3302,7 +3303,13 @@ screenTest('feature 14: Watch shows the pair on the first frame', async ({ page,
         await expect(panels).toHaveCount(2);
         const vis = await tokenColour(page, '--vis');
         const eng = await tokenColour(page, '--eng');
+        const panelBounds = [];
         for (const [place, panel] of [panels.nth(0), panels.nth(1)].entries()) {
+          if (size.width < 768) {
+            await page.getByRole('button', { name: `${place + 1} ${PAIR[place].name}`, exact: true }).click();
+            await expect(panels.nth(1 - place)).toBeHidden();
+          }
+          panelBounds.push(await box(panel));
           const canvas = panel.locator('canvas');
           await expect(canvas).toHaveCount(1);
           await panel.scrollIntoViewIfNeeded();
@@ -3319,12 +3326,12 @@ screenTest('feature 14: Watch shows the pair on the first frame', async ({ page,
           // Each panel names its leader.
           await expect(panel.getByRole('img', { name: new RegExp(`^${PAIR[place].name} `) })).toHaveCount(1);
         }
-        const [first, second] = await Promise.all([box(panels.nth(0)), box(panels.nth(1))]);
+        const [first, second] = panelBounds;
         if (size.width >= 768) {
           expect(Math.abs(first.y - second.y), 'the two panels stand side by side').toBeLessThanOrEqual(1);
           expect(first.x + first.width).toBeLessThanOrEqual(second.x + 1);
         } else {
-          expect(second.y, 'the two panels stack').toBeGreaterThanOrEqual(first.y + first.height - 1);
+          expect(Math.abs(first.width - second.width), 'the shown panel uses the same width for either leader').toBeLessThanOrEqual(1);
           expect(Math.abs(first.x - second.x)).toBeLessThanOrEqual(1);
         }
         for (const b of [first, second]) {
@@ -3332,6 +3339,7 @@ screenTest('feature 14: Watch shows the pair on the first frame', async ({ page,
           expect(b.x + b.width).toBeLessThanOrEqual(size.width + 1);
         }
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1), 'the page has no sideways scroll').toBe(true);
+        if (size.width < 768) await page.getByRole('button', { name: `1 ${PAIR[0].name}`, exact: true }).click();
         await panels.nth(0).scrollIntoViewIfNeeded();
         await picture(page, `watch-pair-${size.width}-dark`);
       });

@@ -442,8 +442,7 @@ for (const look of LOOKS) {
         await expect(region).toBeVisible();
         await picture(page, `${width}-${look}-sim-evidence-row`, region, 220);
         const row = evidenceRow(page);
-        // The Forged Toolbox key and the layout switch stand in the row.
-        await expect.soft(row.getByRole('group', { name: 'Sim layout' }), `${width}, ${look}: the layout switch is in the evidence row`).toBeVisible();
+        await expect(row.getByRole('button', { name: /^Open Forged Toolbox/ })).toBeVisible();
         const read = await expectOneRow(page, row, `${width}, ${look}, the evidence row`, width);
         if (read.scrolls) await expectScrollKeys(page, row, `${width}, ${look}, the evidence row`);
       });

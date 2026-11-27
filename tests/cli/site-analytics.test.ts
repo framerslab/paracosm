@@ -398,3 +398,7 @@ test('POST /api/event limits the addresses of one IPv6 /64 together, and forward
   // An address of another /64 still counts.
   assert.equal((await send('2001:db8:5:8::1')).status, 202);
 });
+
+test('the count endpoint does not forward Watch disclosures', () => {
+  assert.equal(countedEvent(JSON.stringify({ n: 'watch_fold', u: '/sim', p: { fold: 'crisis' } })), null);
+});

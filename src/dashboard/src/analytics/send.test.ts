@@ -112,3 +112,15 @@ test('delivery errors leave the action and the other destinations working', asyn
   assert.deepEqual(page.recordings, [['event', 'qs_view']]);
   await new Promise<void>(resolve => setImmediate(resolve));
 });
+
+test('Watch disclosures measure only with the fixed dashboard context', () => {
+  for (const choices of [null, [], ['count'], ['record'], ['measure'], ['count', 'measure', 'record']] as Array<Purpose[] | null>) {
+    const page = browser(choices);
+    sendEvent('watch_fold', { fold: 'crisis' }, page.window);
+    sendEvent('watch_fold', { fold: 'reasoning', detail: 'private' }, page.window);
+    sendEvent('watch_fold', { fold: 'private' }, page.window);
+    assert.deepEqual(page.posts, []);
+    assert.deepEqual(page.recordings, []);
+    assert.deepEqual(page.measures, choices?.includes('measure') ? [['event', 'watch_fold', { fold: 'crisis', ...context }]] : []);
+  }
+});

@@ -39,11 +39,11 @@ export default defineConfig({
     // run view toast and Event Log chip spec and the Viz rows and type spec set
     // each width they check themselves, so one project runs them. So does
     // the saved run replay spec, which reads the one shared-run server.
-    { name: 'chromium-tablet',  testIgnore: /ai-marks|digital-twin-events|run-status-events|run-per-visitor|dashboard-display|toolbox-log-and-share-link|forged-tool-view|viz-living-grid|sim-first-screen|first-screen-events|settings-key-field|sim-frame|mobile-responsive|phone-rows-and-grid-window|phone-rows-more|saved-run-replay|run-view-toast-and-log-chip|viz-rows-type/, use: { ...devices['Desktop Chrome'], viewport: { width: 768, height: 1024 } } },
+    { name: 'chromium-tablet',  testIgnore: /run-screen|ai-marks|digital-twin-events|run-status-events|run-per-visitor|dashboard-display|toolbox-log-and-share-link|forged-tool-view|viz-living-grid|sim-first-screen|first-screen-events|settings-key-field|sim-frame|mobile-responsive|phone-rows-and-grid-window|phone-rows-more|saved-run-replay|run-view-toast-and-log-chip|viz-rows-type/, use: { ...devices['Desktop Chrome'], viewport: { width: 768, height: 1024 } } },
     // Pixel 5 ships with the Chromium engine in Playwright's device
     // catalogue. iPhone 13 would force the webkit channel, which we
     // don't bundle (only chromium is installed via test:e2e:install).
-    { name: 'chromium-mobile',  testIgnore: /ai-marks|digital-twin-events|run-status-events|run-per-visitor|dashboard-display|toolbox-log-and-share-link|forged-tool-view|viz-living-grid|sim-first-screen|first-screen-events|settings-key-field|sim-frame|mobile-responsive|phone-rows-and-grid-window|phone-rows-more|saved-run-replay|run-view-toast-and-log-chip|viz-rows-type/, use: { ...devices['Pixel 5'] } },
+    { name: 'chromium-mobile',  testIgnore: /run-screen|ai-marks|digital-twin-events|run-status-events|run-per-visitor|dashboard-display|toolbox-log-and-share-link|forged-tool-view|viz-living-grid|sim-first-screen|first-screen-events|settings-key-field|sim-frame|mobile-responsive|phone-rows-and-grid-window|phone-rows-more|saved-run-replay|run-view-toast-and-log-chip|viz-rows-type/, use: { ...devices['Pixel 5'] } },
   ],
   webServer: process.env.PARACOSM_E2E_BASE_URL
     ? undefined
@@ -208,6 +208,22 @@ export default defineConfig({
           stdout: 'pipe',
           stderr: 'pipe',
         },
+        ...[
+          { port: 3476, hosted: true, base: false },
+          { port: 3477, hosted: false, base: false },
+          ...(process.env.WATCH_BASE_DIST ? [
+            { port: 3478, hosted: true, base: true },
+            { port: 3479, hosted: false, base: true },
+          ] : []),
+        ].map(({ port, hosted, base }) => ({
+          command: `PORT=${port} WATCH_PAIR=1 WATCH_HOSTED=${hosted ? '1' : '0'} npx tsx tests-e2e/support/pair-run-server.ts`,
+          env: { WATCH_BASE_DIST: base ? process.env.WATCH_BASE_DIST! : '' },
+          url: `http://127.0.0.1:${port}/health`,
+          timeout: 180_000,
+          reuseExistingServer: !process.env.CI,
+          stdout: 'pipe' as const,
+          stderr: 'pipe' as const,
+        })),
         // The hosted demo's server with its visitor analytics on and made-up
         // ids, for the consent bar spec; the count events it forwards go to a
         // sink on port 3465.

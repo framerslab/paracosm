@@ -161,6 +161,45 @@ jobs:
       - name: Toolbox log key and share link end-to-end test
         run: npx playwright test tests-e2e/specs/toolbox-log-and-share-link.spec.ts --project=chromium-desktop
 
+      - name: Check out the pair run screen base
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && steps.install-playwright.outcome == 'success' }}
+        id: watch-base
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: watch-base
+          persist-credentials: false
+
+      - name: Build the pair run screen base dashboard
+        if: ${{ !cancelled() && steps.watch-base.outcome == 'success' }}
+        id: build-watch-base
+        working-directory: watch-base
+        run: |
+          npm ci
+          npm --prefix src/dashboard ci
+          npm run dashboard:build
+
+      - name: Pair run screen
+        if: ${{ !cancelled() && steps.install-playwright.outcome == 'success' }}
+        env:
+          WATCH_BASE_DIST: ${{ steps.build-watch-base.outcome == 'success' && format('{0}/watch-base/src/dashboard/dist', github.workspace) || '' }}
+        run: npx playwright test tests-e2e/specs/run-screen.spec.ts --project=chromium-desktop
+
+      - name: Collect pair run screen pictures
+        if: always()
+        run: |
+          mkdir -p test-pictures/sim-first-screen/run-screen-a
+          cp -R test-pictures/run-screen-a/. test-pictures/sim-first-screen/run-screen-a/
+
+      - name: Upload pair run screen pictures
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sim-run-screen-a-pictures
+          path: test-pictures/run-screen-a/
+          if-no-files-found: error
+          retention-days: 14
+
       # The pictures that spec takes of each press at 390 and 1440 in both looks.
       - name: Upload the toolbox log key and share link pictures
         if: always()
