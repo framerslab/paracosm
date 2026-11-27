@@ -114,7 +114,7 @@ test('one turn compares the two decisions while they arrive', async ({ browser }
           await pick('2 Dietrich Voss').press('Enter');
           await expect(pick('2 Dietrich Voss')).toHaveAttribute('aria-pressed', 'true');
           await expect(grid.getByTestId('watch-grid-panel').nth(1)).toBeVisible();
-          expect(await tones(pick('2 Dietrich Voss'))).toEqual(selected);
+          await expect.poll(() => tones(pick('2 Dietrich Voss'))).toEqual(selected);
           await expect(watch.getByText('Balanced leader.', { exact: false }).first()).toBeVisible();
           await pick('1 Aria Chen').click();
         } else {

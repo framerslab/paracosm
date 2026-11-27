@@ -1089,7 +1089,7 @@ test('legal L8: the run screen’s event label reads 4.5 to 1', async ({ page })
     for (const look of LOOKS) {
       await test.step(width + ' px, ' + look, async () => {
         await page.setViewportSize({ width, height: 844 });
-        await page.emulateMedia({ colorScheme: look });
+        await page.emulateMedia({ colorScheme: look, reducedMotion: 'reduce' });
         await page.goto(new URL(href!, page.url()).href);
         await expect(replayStatus(page)).toBeVisible();
         const labels = page.getByTestId('watch-crisis-kind').filter({ visible: true });
