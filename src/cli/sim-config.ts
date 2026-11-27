@@ -867,6 +867,12 @@ function withNeutralTraits(input: ActorInput): ActorInput {
   return { ...actor, hexaco: hexaco as unknown as HexacoProfile };
 }
 
+/** The fewest actors in a fresh simulation. */
+export const MIN_SIMULATION_ACTORS = 2;
+
+/** The most actors in a simulation. */
+export const MAX_SIMULATION_ACTORS = 300;
+
 /**
  * The most turns one run takes, whoever pays for it. A turn the provider
  * refuses still runs the turn loop, so the bound holds with or without a
@@ -933,10 +939,10 @@ export function normalizeSimulationConfig(
     if (!Array.isArray(input.actors) || input.actors.length !== 1) {
       throw new Error('Fork setup requires exactly one actor');
     }
-  } else if (!Array.isArray(input.actors) || input.actors.length < 2) {
-    throw new Error('Simulation requires at least 2 actors');
-  } else if (input.actors.length > 300) {
-    throw new Error(`Simulation accepts at most 300 actors per run, got ${input.actors.length}`);
+  } else if (!Array.isArray(input.actors) || input.actors.length < MIN_SIMULATION_ACTORS) {
+    throw new Error(`Simulation requires at least ${MIN_SIMULATION_ACTORS} actors`);
+  } else if (input.actors.length > MAX_SIMULATION_ACTORS) {
+    throw new Error(`Simulation accepts at most ${MAX_SIMULATION_ACTORS} actors per run, got ${input.actors.length}`);
   }
 
   // Priority for provider resolution:

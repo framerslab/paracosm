@@ -11,31 +11,46 @@ import { once } from 'node:events';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DEMO_EXECUTION, DEMO_PROVIDER } from '../../src/cli/sim-config.js';
+import { hostedRunModels } from '../../src/server/hosted-model-policy.js';
 import { marsScenario } from '../../src/engine/scenarios/index.js';
 import { createNoopRunHistoryStore } from '../../src/server/stores/run-history.js';
 import { createMarsServer } from '../../src/server/server-app.js';
 
 interface RateLimitStatus {
+  ip: string;
+  allowed?: boolean;
+  remaining?: number;
+  resetAt?: number;
+  resetAtISO?: string;
+  turns?: number;
+  provider?: string;
+  models?: unknown;
   limit?: number;
   unlimited?: boolean;
 }
 
 /** Starts a server with `env`, reads GET /rate-limit, and returns it with the warnings logged while the server started. */
-async function rateLimitWith(env: NodeJS.ProcessEnv): Promise<{ status: RateLimitStatus; warnings: string[] }> {
+async function rateLimitWith(env: NodeJS.ProcessEnv): Promise<{ status: RateLimitStatus; repeated: RateLimitStatus; warnings: string[] }> {
   const appDir = mkdtempSync(join(tmpdir(), 'paracosm-rate-limit-'));
   const warn = mock.method(console, 'warn', () => {});
-  const unset = { RATE_LIMIT: undefined, CHAT_RATE_LIMIT: undefined, CHAT_RATE_LIMIT_GLOBAL: undefined, CHAT_CONCURRENCY: undefined };
+  const unset = { PARACOSM_HOSTED_DEMO: '', PARACOSM_PLATFORM_API: '', RATE_LIMIT: undefined, CHAT_RATE_LIMIT: undefined, CHAT_RATE_LIMIT_GLOBAL: undefined, CHAT_CONCURRENCY: undefined };
   const server = createMarsServer({ env: { ...process.env, ...unset, ...env, APP_DIR: appDir }, runPairSimulations: async () => {} });
   try {
     server.listen(0);
     await once(server, 'listening');
     const { port } = server.address() as { port: number };
-    const res = await fetch(`http://127.0.0.1:${port}/rate-limit`);
-    assert.equal(res.status, 200);
+    const read = async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/rate-limit`);
+      assert.equal(res.status, 200);
+      return await res.json() as RateLimitStatus;
+    };
+    const status = await read();
+    const repeated = await read();
     const warnings = warn.mock.calls
       .map((call) => call.arguments.map(String).join(' '))
       .filter((line) => line.includes('[rate-limit]'));
-    return { status: (await res.json()) as RateLimitStatus, warnings };
+    return { status, repeated, warnings };
   } finally {
     warn.mock.restore();
     if (server.listening) {
@@ -69,6 +84,34 @@ test('RATE_LIMIT=3 allows three runs and RATE_LIMIT=0 turns the limit off, witho
   const off = await rateLimitWith({ RATE_LIMIT: '0' });
   assert.equal(off.status.unlimited, true);
   assert.deepEqual(off.warnings, []);
+});
+
+test('hosted rate limit identifies the billed run', async () => {
+  const { status: answer, repeated } = await rateLimitWith({ PARACOSM_HOSTED_DEMO: 'true', RATE_LIMIT: '3' });
+  assert.equal(answer.ip, '127.0.0.1');
+  assert.equal(answer.allowed, true);
+  assert.equal(answer.remaining, 3);
+  assert.equal(answer.limit, 3);
+  assert.ok(answer.resetAt && answer.resetAt > Date.now());
+  assert.equal(answer.resetAtISO, new Date(answer.resetAt).toISOString());
+  assert.equal(answer.turns, DEMO_EXECUTION.maxTurns);
+  assert.equal(answer.provider, DEMO_PROVIDER);
+  assert.deepEqual(answer.models, hostedRunModels());
+  assert.deepEqual(repeated, answer);
+});
+
+test('local and unlimited replies keep their shape', async () => {
+  for (const env of [{}, { PARACOSM_PLATFORM_API: 'true' }]) {
+    const { status } = await rateLimitWith({ ...env, RATE_LIMIT: '1' });
+    assert.equal(status.remaining, 1);
+    for (const key of ['turns', 'provider', 'models']) {
+      assert.equal(Object.hasOwn(status, key), false, key);
+    }
+  }
+  for (const env of [{}, { PARACOSM_PLATFORM_API: 'true' }, { PARACOSM_HOSTED_DEMO: 'true' }]) {
+    const { status } = await rateLimitWith({ ...env, RATE_LIMIT: '0' });
+    assert.deepEqual(status, { unlimited: true, ip: '127.0.0.1' });
+  }
 });
 
 test('a chat limit that is not a whole number logs a warning that names it', async () => {

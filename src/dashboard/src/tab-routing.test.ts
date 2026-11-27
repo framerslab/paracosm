@@ -2,9 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   createDashboardTabHref,
+  createSettingsKeyHref,
   createToolLogHref,
   getDashboardTabFromHref,
+  requestsSettingsKeyFocus,
   resolveSetupRedirectHref,
+  settingsKeyFocusField,
 } from './tab-routing.js';
 
 test('getDashboardTabFromHref prefers the query-param tab contract', () => {
@@ -50,4 +53,21 @@ test('createToolLogHref with no actor leaves the log on every actor', () => {
   const url = new URL(createToolLogHref('http://localhost:3456/sim?tab=reports&logLeader=Aria%20Chen', 'habitat_pressure_check'));
   assert.equal(url.searchParams.has('logLeader'), false);
   assert.equal(url.hash, '#log=habitat_pressure_check&logExact=1');
+});
+
+test('a key link names the field of the provider that refused the key', () => {
+  const watch = 'http://localhost:3456/sim?tab=sim&sub=log#log=x';
+  const openai = createSettingsKeyHref(watch);
+  assert.equal(openai, 'http://localhost:3456/sim?tab=settings&focus=api-key');
+  assert.equal(settingsKeyFocusField(openai), 'openai');
+  assert.equal(createSettingsKeyHref(watch, 'openai'), openai);
+  const anthropic = createSettingsKeyHref(watch, 'anthropic');
+  assert.equal(anthropic, 'http://localhost:3456/sim?tab=settings&focus=api-key-anthropic');
+  assert.equal(settingsKeyFocusField(anthropic), 'anthropic');
+  assert.equal(requestsSettingsKeyFocus(anthropic), true);
+  // The Run tab's add-key fragment still names OpenAI's field; another tab names none.
+  assert.equal(settingsKeyFocusField('http://localhost:3456/sim#key-openai'), 'openai');
+  assert.equal(settingsKeyFocusField('http://localhost:3456/sim?tab=settings#key-anthropic'), 'anthropic');
+  assert.equal(settingsKeyFocusField('http://localhost:3456/sim?tab=sim&focus=api-key'), null);
+  assert.equal(requestsSettingsKeyFocus('http://localhost:3456/sim?tab=settings'), false);
 });

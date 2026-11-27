@@ -22,6 +22,10 @@ export type AgentFieldValue = number | string | boolean | string[];
 export interface ScenarioLabels {
   /** Full display name (e.g., "Mars Genesis") */
   name: string;
+  /** A short description for the scenario list. */
+  summary?: string;
+  /** A note about how to read the scenario. */
+  fictionNote?: string;
   /** Short identifier used in file names and localStorage keys */
   shortName: string;
   /** What to call population members (e.g., "colonists", "crew members") */

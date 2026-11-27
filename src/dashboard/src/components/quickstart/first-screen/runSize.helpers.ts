@@ -6,6 +6,8 @@
  * @module paracosm/dashboard/quickstart/first-screen/runSize.helpers
  */
 
+import type { AdminConfigState } from './useServerFacts.js';
+
 /** The fewest and the most leaders a run takes (normalizeSimulationConfig refuses under 2 and over 300). */
 export const RUN_SIZE_BOUNDS = { min: 2, max: 300 } as const;
 
@@ -17,6 +19,20 @@ export interface SizeBounds {
   max: number;
 }
 
+/** The limits for this server and the separate fixed size of its free run. */
+export function resolveRunSizes(config: AdminConfigState): { bounds: SizeBounds; free: number; showFreeLimits: boolean } {
+  const { minActors, maxActors } = config.run ?? {};
+  const bounds = minActors !== undefined && maxActors !== undefined
+    ? { min: minActors, max: maxActors }
+    : RUN_SIZE_BOUNDS;
+  const free = config.demoCaps?.maxActors;
+  return {
+    bounds,
+    free: free ?? FREE_SIZE,
+    showFreeLimits: free !== undefined && maxActors !== undefined,
+  };
+}
+
 /**
  * What a typed size becomes. A whole number in range is taken. A whole
  * number out of range is refused and goes to the nearest bound. Anything
@@ -25,7 +41,7 @@ export interface SizeBounds {
  */
 export function clampSize(raw: string, bounds: SizeBounds = RUN_SIZE_BOUNDS, last: number = FREE_SIZE): { value: number; refused: boolean } {
   const text = raw.trim();
-  if (!/^\d+$/.test(text)) return { value: last, refused: true };
+  if (!/^\d+$/.test(text)) return { value: stepSize(last, 0, bounds), refused: true };
   const n = Number(text);
   if (!Number.isSafeInteger(n) || n > bounds.max) return { value: bounds.max, refused: true };
   if (n < bounds.min) return { value: bounds.min, refused: true };
@@ -42,16 +58,17 @@ export function stepSize(size: number, by: number, bounds: SizeBounds = RUN_SIZE
  * in range reads as the fallback, with no error.
  */
 export function sizeFromSearch(search: string, bounds: SizeBounds = RUN_SIZE_BOUNDS, fallback: number = FREE_SIZE): number {
+  const base = stepSize(fallback, 0, bounds);
   const raw = new URLSearchParams(search).get('size');
-  if (raw === null) return fallback;
-  const { value, refused } = clampSize(raw, bounds, fallback);
-  return refused ? fallback : value;
+  if (raw === null) return base;
+  const { value, refused } = clampSize(raw, bounds, base);
+  return refused ? base : value;
 }
 
-/** The address's query with the size written into it. A pair, the size every run starts at, is left out. */
-export function searchWithSize(search: string, size: number): string {
+/** The address's query with the size written into it. The default size is left out. */
+export function searchWithSize(search: string, size: number, fallback: number = FREE_SIZE): string {
   const params = new URLSearchParams(search);
-  if (size === FREE_SIZE) params.delete('size');
+  if (size === fallback) params.delete('size');
   else params.set('size', String(size));
   const out = params.toString();
   return out ? `?${out}` : '';

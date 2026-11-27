@@ -354,3 +354,95 @@
   font-size: var(--font-md);
   color: var(--text-3);
 }
+
+
+.keyGroup {
+  min-inline-size: 0;
+  border-color: var(--edge-control);
+  color: var(--text-1);
+  font: 400 var(--font-read)/1.4 var(--sans);
+
+  .legend {
+    font: 600 var(--font-read-body)/1.55 var(--sans);
+  }
+
+  .keysIntro,
+  .keysIntro strong {
+    color: var(--text-1);
+  }
+
+  .keysIntro {
+    font: 400 var(--font-read-body)/1.55 var(--sans);
+  }
+
+  .keysIntro strong,
+  label {
+    font-weight: 600;
+  }
+
+  .fieldHint,
+  .keyEnvTag,
+  .launchStatus {
+    font: inherit;
+    color: var(--text-1);
+  }
+
+  .input,
+  .leaderAddBtn {
+    border-color: var(--edge-control);
+    color: var(--text-1);
+    font: inherit;
+    min-block-size: var(--frame-target-size);
+  }
+
+  .leaderAddBtn {
+    flex: 0 1 auto;
+    min-inline-size: 0;
+    padding-block: var(--frame-gap);
+    padding-inline: var(--frame-gap);
+    letter-spacing: normal;
+    text-transform: none;
+    border-style: solid;
+  }
+
+  :is(a, button, input):focus-visible {
+    outline: calc(2 * var(--frame-rule-width)) solid var(--amber);
+    outline-offset: calc(2 * var(--frame-rule-width));
+  }
+
+  [id="key-openai"]:focus {
+    outline: calc(2 * var(--frame-rule-width)) solid var(--amber);
+    outline-offset: calc(2 * var(--frame-rule-width));
+  }
+
+  a {
+    color: inherit;
+    text-decoration: underline;
+  }
+}
+
+.keyActions {
+  display: flex;
+  gap: var(--frame-gap);
+  align-items: center;
+  justify-content: space-between;
+  margin-block: var(--frame-gap);
+}
+
+.savedKey {
+  display: flex;
+  gap: var(--frame-gap);
+  align-items: baseline;
+  flex-wrap: wrap;
+  min-inline-size: 0;
+}
+
+.keyLink {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: var(--frame-target-size);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .keyGroup .leaderAddBtn { transition: none; }
+}

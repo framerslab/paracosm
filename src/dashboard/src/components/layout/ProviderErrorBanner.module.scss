@@ -78,3 +78,54 @@
   overflow-wrap: anywhere;
   min-width: 0;
 }
+
+
+.keyRefusal {
+  gap: var(--frame-gap);
+  padding: var(--frame-gap) var(--frame-side-padding);
+  background: var(--bg-panel);
+  border-color: var(--edge-control);
+  color: var(--text-1);
+  font: 400 var(--font-read)/1.4 var(--sans);
+
+  .icon {
+    inline-size: var(--frame-glyph-size);
+    block-size: var(--frame-glyph-size);
+    border-color: var(--amber);
+    color: var(--amber);
+    font: 600 var(--font-read)/1.4 var(--sans);
+  }
+
+  .dismissBtn {
+    border-color: var(--edge-control);
+    color: inherit;
+    font: inherit;
+    min-block-size: var(--frame-target-size);
+  }
+
+  :is(a, button):focus-visible {
+    outline: calc(2 * var(--frame-rule-width)) solid var(--amber);
+    outline-offset: calc(2 * var(--frame-rule-width));
+  }
+}
+
+.refusalMessage {
+  flex: 1 1 min(100% - var(--frame-glyph-size) - var(--frame-gap), 24ch);
+  min-inline-size: 0;
+  font: 400 var(--font-read-body)/1.55 var(--sans);
+}
+
+.refusalActions {
+  display: flex;
+  gap: var(--frame-gap);
+  align-items: center;
+  min-inline-size: 0;
+}
+
+.refusalLink {
+  display: inline-flex;
+  align-items: center;
+  color: inherit;
+  text-decoration: underline;
+  min-block-size: var(--frame-target-size);
+}

@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "engineArchetype": "closed_turn_based_settlement",
   "labels": {
+    "summary": "A research station on the sea floor. Two captains weigh discovery against safety.",
     "name": "Deep Ocean Station",
     "shortName": "ocean",
     "populationNoun": "crew members",

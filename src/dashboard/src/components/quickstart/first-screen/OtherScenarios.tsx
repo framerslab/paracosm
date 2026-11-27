@@ -16,15 +16,15 @@
  *
  * @module paracosm/dashboard/quickstart/first-screen/OtherScenarios
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useId, useState } from 'react';
 import { useScenarioContext, useScenarioReady } from '../../../App';
 import { markScenarioSwitched } from '../../../scenario-sync';
 import { useMediaQuery } from '../../viz/grid/useMediaQuery';
 import type { CatalogScenario } from '../ScenarioCatalogGrid';
 import { ScenarioDetailDrawer } from '../ScenarioDetailDrawer';
-import { payer, readLaunchSettings, safeLocalStorage } from './effectiveLaunch';
+import { catalogTurns, payer, readLaunchSettings, safeLocalStorage } from './effectiveLaunch';
 import { BrokenLinkMark } from './marks';
-import { useServerFacts } from './useServerFacts';
+import { isPositiveCount, useServerFacts } from './useServerFacts';
 import {
   CHOOSE_WHEN_ONLINE,
   ON_SCREEN_NOW,
@@ -34,7 +34,8 @@ import {
   TRY_AGAIN,
   VIEW_DETAIL,
   YOURS,
-  departmentsLine,
+  catalogFigures,
+  catalogLeaders,
   loadScenario,
   loadingScenario,
   onScreenSpoken,
@@ -92,6 +93,7 @@ export function OtherScenarios({ locked = false }: OtherScenariosProps = {}) {
   const scenarioReady = useScenarioReady();
   const facts = useServerFacts();
   const shown = useShownCount();
+  const detailsId = useId();
   const [list, setList] = useState<ListState>({ status: 'loading' });
   const [tryingList, setTryingList] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -131,13 +133,10 @@ export function OtherScenarios({ locked = false }: OtherScenariosProps = {}) {
     heading.focus();
   }, [scenarioReady, facts.adminConfig.status]);
 
-  // Whose keys a run uses decides the departments a row says: on the host's keys, no more than the host's cap.
-  const who = payer(facts, readLaunchSettings(safeLocalStorage()).overrides);
-  const cap = who === 'host' ? facts.adminConfig.demoCaps?.maxActiveDepartments : undefined;
-  const departmentsOf = (row: CatalogScenario): number => {
-    const own = typeof row.departments === 'number' ? row.departments : 0;
-    return typeof cap === 'number' && cap > 0 ? Math.min(own, cap) : own;
-  };
+  const settings = readLaunchSettings(safeLocalStorage());
+  const who = payer(facts, settings.overrides);
+  const payerKnown = who === 'own' || facts.adminConfig.status === 'ready';
+  const departmentCap = facts.adminConfig.demoCaps?.maxActiveDepartments;
 
   const choose = async (row: CatalogScenario) => {
     if (locked || rowState?.kind === 'loading') return;
@@ -183,8 +182,35 @@ export function OtherScenarios({ locked = false }: OtherScenariosProps = {}) {
 
   const renderRow = (row: CatalogScenario) => {
     const name = row.name || row.id;
-    const departments = departmentsOf(row);
-    const figures = departments > 0 ? departmentsLine(departments) : null;
+    const hasHostedFacts = Array.isArray(row.leaders) || row.turns !== undefined ||
+      row.summary !== undefined || row.fictionNote !== undefined;
+    const summary = typeof row.summary === 'string' ? row.summary.trim() : '';
+    const note = typeof row.fictionNote === 'string' ? row.fictionNote.trim() : '';
+    const names = Array.isArray(row.leaders)
+      ? row.leaders.filter((name) => typeof name === 'string' && name.trim())
+      : undefined;
+    const turns = payerKnown ? catalogTurns(facts, row, settings, who) : undefined;
+    let departments = isPositiveCount(row.departments) ? row.departments : undefined;
+    if (departments !== undefined && who === 'host' && departmentCap !== undefined) {
+      departments = Math.min(departments, departmentCap);
+    } else if (hasHostedFacts && (!payerKnown || who === 'host')) {
+      departments = undefined;
+    }
+    const figures = catalogFigures(turns, departments);
+    const id = `${detailsId}-${all.indexOf(row)}`;
+    const details = (summary || names || note || figures) && (
+      <span className={styles.details} id={id}>
+        {summary && <span className={styles.summary} data-testid="row-summary" data-text="body">{summary}</span>}
+        {names && <span className={styles.detailLine} data-testid="row-leaders">{catalogLeaders(names)}</span>}
+        {figures && (
+          <>
+            <span className={styles.figures} data-testid="row-figures" aria-hidden="true">{figures}</span>
+            <span className="sr-only">{catalogFigures(turns, departments, ', ')}</span>
+          </>
+        )}
+        {note && <span className={styles.detailLine} data-testid="row-fiction-note">{note}</span>}
+      </span>
+    );
     const state = rowState?.id === row.id ? rowState.kind : null;
     const onScreen = row.id === onScreenId;
     return (
@@ -195,7 +221,7 @@ export function OtherScenarios({ locked = false }: OtherScenariosProps = {}) {
               <span className="sr-only">{onScreenSpoken(name)}</span>
               <span className={styles.name} data-testid="row-name" aria-hidden="true">{name}</span>
               <span className={styles.state} data-testid="row-state" aria-hidden="true">{ON_SCREEN_NOW}</span>
-              {figures && <span className={styles.figures} data-testid="row-figures" aria-hidden="true">{figures}</span>}
+              {details}
             </div>
           )
           : (
@@ -203,6 +229,7 @@ export function OtherScenarios({ locked = false }: OtherScenariosProps = {}) {
               type="button"
               className={styles.card}
               aria-label={loadScenario(name)}
+              aria-describedby={details ? id : undefined}
               aria-disabled={busy || locked || state === 'failed' ? 'true' : undefined}
               onClick={() => {
                 if (busy || locked || state === 'failed') return;
@@ -210,7 +237,7 @@ export function OtherScenarios({ locked = false }: OtherScenariosProps = {}) {
               }}
             >
               <span className={styles.name} data-testid="row-name">{name}</span>
-              {figures && <span className={styles.figures} data-testid="row-figures">{figures}</span>}
+              {details}
             </button>
           )}
         {state === 'loading' && <p className={styles.line} role="status">{loadingScenario(name)}</p>}

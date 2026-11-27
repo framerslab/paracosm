@@ -11,7 +11,7 @@ import { AdminTokenField } from './AdminTokenField';
 import { LoadPriorRunsCTA } from './LoadPriorRunsCTA';
 import { EventLogPanel } from '../log/EventLogPanel';
 import { SubTabNav } from '../shared/SubTabNav';
-import { getDashboardTabFromHref, resolveSetupRedirectHref, setSubTabUrlParam } from '../../tab-routing';
+import { createDashboardTabHref, getDashboardTabFromHref, resolveSetupRedirectHref, setSubTabUrlParam, settingsKeyFocusField } from '../../tab-routing';
 import { emitLaunched, markScenarioSwitched, subscribeScenarioUpdates } from '../../scenario-sync';
 import type { SimEvent } from '../../hooks/useSSE';
 import {
@@ -30,6 +30,7 @@ import {
 } from '../../hooks/useLastLaunchConfig';
 import type { ScenarioClientPayload } from '../../hooks/useScenario';
 import { hasSessionProviderKey, sessionProviderKeys, visitorKeyTransportError } from './sessionProviderKeys';
+import { BACK_TO_RUN, KEY_SAVED_IN_TAB } from '../quickstart/first-screen/words';
 import { safeLocalStorage } from '../quickstart/first-screen/effectiveLaunch';
 import styles from './SettingsPanel.module.scss';
 
@@ -250,6 +251,17 @@ function useShowFragmentTarget() {
 
 export function SettingsPanel({ events = [], initialSubTab = 'config', onClearLocal, onWipeServer, onOpenStoredData }: SettingsPanelProps = {}) {
   const [subTab, setSubTab] = useState<SettingsSubTab>(initialSubTab);
+  const openAiField = useRef<HTMLInputElement>(null);
+  const anthropicField = useRef<HTMLInputElement>(null);
+  const focusedKeyField = useRef(false);
+  useEffect(() => {
+    if (focusedKeyField.current) return;
+    const named = settingsKeyFocusField(window.location.href);
+    const target = named === 'anthropic' ? anthropicField.current : named === 'openai' ? openAiField.current : null;
+    if (!target) return;
+    focusedKeyField.current = true;
+    target.focus();
+  }, [subTab]);
   useShowFragmentTarget();
   // Persist sub-tab in the URL so refresh / shared links land back on
   // the user's last open panel. 'config' is the default — omit the
@@ -426,6 +438,7 @@ export function SettingsPanel({ events = [], initialSubTab = 'config', onClearLo
   // A key counts as the server reads it: a blank or masked value (`sk-...`)
   // is no key, so it neither unlocks the page nor is posted.
   const hasSessionLlmKey = hasSessionProviderKey(keyOverrides);
+  const savedProvider = hasSessionLlmKey && hasSessionProviderKey(readTabKeyOverrides());
   const hasEnvLlmKey = !!envKeys.openai || !!envKeys.anthropic;
   const canPickModels = hasSessionLlmKey || (!hostedDemo && hasEnvLlmKey);
   // `hasUserLlmKey` controls whether launch() attaches `config.models`.
@@ -550,7 +563,7 @@ export function SettingsPanel({ events = [], initialSubTab = 'config', onClearLo
       }
       if (data.redirect) {
         // The server took the run: it replaces the Digital Twin views.
-        runStart(typeof data.runKey === 'string' ? data.runKey : undefined);
+        runStart(typeof data.runKey === 'string' ? data.runKey : undefined, hasSessionLlmKey);
         setStatus('Running...');
         emitLaunched(window, data.visitorId);
         const targetHref = resolveSetupRedirectHref(window.location.href, data.redirect);
@@ -564,7 +577,7 @@ export function SettingsPanel({ events = [], initialSubTab = 'config', onClearLo
       setStatus(`Failed: ${err}`);
       setLaunching(false);
     }
-  }, [actors, turns, seed, startTime, timePerTurn, population, effectiveProvider, liveSearch, navigateTab, runStart, scenario, scenarioReady, keyOverrides, tierModels, hasUserLlmKey, effectiveEconomicsProfile]);
+  }, [actors, turns, seed, startTime, timePerTurn, population, effectiveProvider, liveSearch, navigateTab, runStart, scenario, scenarioReady, keyOverrides, tierModels, hasUserLlmKey, hasSessionLlmKey, effectiveEconomicsProfile]);
 
   const inputCls = (locked: boolean) =>
     [styles.input, locked ? styles.locked : ''].filter(Boolean).join(' ');
@@ -821,11 +834,11 @@ export function SettingsPanel({ events = [], initialSubTab = 'config', onClearLo
       </fieldset>
 
       {/* API Keys */}
-      <fieldset className={styles.fieldset}>
-        <legend style={SETTINGS_SECTION_HEADER_STYLE} className={styles.legend}>
+      <fieldset className={`${styles.fieldset} ${styles.keyGroup}`} data-testid="settings-key-group">
+        <legend className={styles.legend} data-text="heading">
           API Keys
         </legend>
-        <div className={styles.keysIntro}>
+        <div className={styles.keysIntro} data-text="body">
           <p className={styles.keysIntroPara}>
             <strong className={styles.keysIntroBoldNeutral}>How key resolution works:</strong> The server checks for keys in this order:
             this tab's keys below, then the server .env file.
@@ -856,12 +869,13 @@ export function SettingsPanel({ events = [], initialSubTab = 'config', onClearLo
             ['cohere', 'Cohere (rerank)', 'Optional. Neural reranking of search results for citation quality.'],
           ] as const).map(([key, label, desc]) => (
             <div key={key}>
-              <label htmlFor={`key-${key}`} style={SETTINGS_LABEL_STYLE}>
+              <label htmlFor={`key-${key}`}>
                 {label}
                 {envKeys[key] && <span className={styles.keyEnvTag}>(.env active)</span>}
               </label>
               <input
                 id={`key-${key}`}
+                ref={key === 'openai' ? openAiField : key === 'anthropic' ? anthropicField : undefined}
                 type="password"
                 autoComplete="off"
                 data-clarity-mask="True"
@@ -875,11 +889,19 @@ export function SettingsPanel({ events = [], initialSubTab = 'config', onClearLo
             </div>
           ))}
         </div>
-        <button type="button" className={styles.leaderAddBtn} disabled={forgettingKeys} onClick={forgetKeys}>
-          Forget my keys
-        </button>
+        <div className={styles.keyActions}>
+          <button type="button" className={styles.leaderAddBtn} disabled={forgettingKeys} onClick={forgetKeys}>
+            Forget my keys
+          </button>
+          {savedProvider && (
+            <div className={styles.savedKey}>
+              <span role="status">{KEY_SAVED_IN_TAB}</span>
+              <a className={styles.keyLink} href={createDashboardTabHref(window.location.href, 'quickstart')}>{BACK_TO_RUN}</a>
+            </div>
+          )}
+        </div>
         {keyNotice && <p className={styles.fieldHint} role="status">{keyNotice}</p>}
-        <div className={styles.keysIntro} data-testid="visitor-key-notes">
+        <div className={styles.keysIntro} data-testid="visitor-key-notes" data-text="body">
           <p className={styles.keysIntroPara}>Runs on your key are billed to your OpenAI or Anthropic account, under your agreement with them.</p>
           {keyIdleMinutes !== null && (
             <p className={styles.keysIntroPara}>We send your key to our server for each run and chat you start. It stays in our server's memory while they are in use, for {keyIdleMinutes} minutes at most after you stop, and is never written to disk or to a log.</p>

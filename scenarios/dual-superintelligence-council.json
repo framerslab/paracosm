@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "engineArchetype": "closed_turn_based_settlement",
   "labels": {
+    "summary": "A council weighs whether to expand the work of two AI systems or keep them under tighter control.",
     "name": "Dual Superintelligence Council",
     "shortName": "dsc",
     "populationNoun": "council members",

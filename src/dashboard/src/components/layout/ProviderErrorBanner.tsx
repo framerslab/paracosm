@@ -1,6 +1,7 @@
 import * as React from 'react';
 import type { CSSProperties } from 'react';
 import type { ProviderErrorState } from '../../hooks/useSSE';
+import { CHECK_KEY_IN_SETTINGS, VISITOR_KEY_REFUSED } from '../quickstart/first-screen/words';
 import { knownProviderLink } from './providerLinks';
 import styles from './ProviderErrorBanner.module.scss';
 
@@ -27,10 +28,25 @@ void React; // dashboard SSR tests run without the automatic JSX runtime
 export function ProviderErrorBanner({
   providerError,
   onDismiss,
+  settingsKeyHref,
 }: {
   providerError: ProviderErrorState;
   onDismiss?: () => void;
+  settingsKeyHref?: string;
 }) {
+  if (settingsKeyHref && providerError.kind === 'auth') {
+    return (
+      <div role="alert" className={`${styles.banner} ${styles.keyRefusal}`} data-testid="visitor-key-refusal">
+        <span aria-hidden="true" className={styles.icon}>!</span>
+        <p className={styles.refusalMessage} data-text="body">{VISITOR_KEY_REFUSED}</p>
+        <div className={styles.refusalActions}>
+          <a className={styles.refusalLink} href={settingsKeyHref}>{CHECK_KEY_IN_SETTINGS}</a>
+          {onDismiss && <button onClick={onDismiss} aria-label="Dismiss banner" className={styles.dismissBtn}>Dismiss</button>}
+        </div>
+      </div>
+    );
+  }
+
   // Color scheme differs by severity. Quota and auth are the terminal
   // kinds we actually abort on, so they both get the red treatment. Rate
   // limit / network / unknown are informational (we keep running) so they
