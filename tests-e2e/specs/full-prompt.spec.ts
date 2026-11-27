@@ -436,12 +436,24 @@ for (const width of [390, 1440]) {
         await expect(dialog(page).getByRole('status')).toHaveText('Prompt loaded');
         await snap('dialog');
         await close(page).click();
-        await page.goto(SERVERS.demo + '/#privacy');
+        await page.goto(SERVERS.demo + '/');
         await page.evaluate(() => document.fonts.ready.then(() => undefined));
+        // Set the hash without a competing anchor scroll. Center the disclosure
+        // after the page's own layout and fonts have loaded.
+        await page.addStyleTag({ content: 'html { scroll-behavior: auto; overflow-anchor: none; }' });
+        await page.evaluate(() => history.replaceState(history.state, '', '#privacy'));
         const paragraph = page.locator('#privacy p').filter({ hasText: 'opening a leader’s full prompt' });
         await expect(paragraph).toBeVisible();
-        await paragraph.evaluate(el => el.scrollIntoView({ block: 'center', behavior: 'instant' }));
-        await expect(paragraph).toBeInViewport({ ratio: 1 });
+        await expect.poll(async () => {
+          await paragraph.evaluate(el => {
+            const rect = el.getBoundingClientRect();
+            window.scrollTo({ top: window.scrollY + rect.top + (rect.height - window.innerHeight) / 2, behavior: 'instant' });
+          });
+          await settle(paragraph);
+          const rect = (await paragraph.boundingBox())!;
+          return Math.abs(rect.y + rect.height / 2 - viewport.height / 2);
+        }, { message: 'the disclosure settles in the center of the viewport' }).toBeLessThanOrEqual(1);
+        await expect(paragraph).toBeInViewport();
         const bounds = (await paragraph.boundingBox())!;
         await settle(paragraph);
         expect(await paragraph.boundingBox(), 'the disclosure stays in place through the next paint').toEqual(bounds);
