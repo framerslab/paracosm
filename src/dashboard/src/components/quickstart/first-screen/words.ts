@@ -14,7 +14,7 @@ export const NBSP = '\u00a0';
 export const PAGE_TITLE = 'Simulate one scenario side by side under different leaders | Paracosm';
 
 /** The page's description for search and sharing. */
-export const PAGE_DESCRIPTION = 'Simulate the same scenario 2 to 300 times from the same start and compare where the runs part, turn by turn. An AI event director writes each run’s unscripted crises, and only the leader differs: read each one’s personality scores and orders before you start.';
+export const PAGE_DESCRIPTION = 'Simulate the same scenario 2 to 300 times from the same start and compare where the runs part, turn by turn. An AI event director writes each run’s unscripted crises, and only the leader differs: read both leaders’ personality scores and orders before a pair starts.';
 
 /** The short capital mark over the scenario's name. */
 export const SCENARIO_MARK = 'SCENARIO';
