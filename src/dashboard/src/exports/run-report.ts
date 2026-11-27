@@ -78,6 +78,18 @@ function artifactPassages(artifact: RunArtifact): Passage[] {
   return report;
 }
 
+/**
+ * The fields of a record the report counts as model-written. A record with
+ * field-level source keeps its own list; one saved before it gets the list
+ * the report inferred, so run.json says what the report showed.
+ */
+function writtenFields(source: { aiWrittenFields?: string[] }, texts: Record<string, unknown[]>): string[] {
+  if (Array.isArray(source.aiWrittenFields)) return source.aiWrittenFields;
+  return Object.entries(texts)
+    .filter(([field, values]) => values.some(text => isAiWrittenPassage(source, field, text)))
+    .map(([field]) => field);
+}
+
 function escapeHtml(value: string): string {
   return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 }
@@ -104,10 +116,21 @@ export async function makeRunReportPdf(artifact: RunArtifact, verdict?: Record<s
     metadata: artifact.metadata,
     provenance: report.provenance,
     ...(report.verdict.length ? { verdict: report.verdict } : {}),
-    decisions: artifact.decisions?.map(({ time, actor, choice, rationale, reasoning, outcome, aiWrittenFields }) =>
-      ({ time, actor, choice, rationale, reasoning, outcome, aiWrittenFields })),
-    specialistNotes: artifact.specialistNotes?.map(({ domain, summary, detail, aiWrittenFields }) =>
-      ({ domain, summary, aiWrittenFields, detail: { recommendedActions: detail?.recommendedActions, risks: detail?.risks } })),
+    decisions: artifact.decisions?.map(decision => {
+      const { time, actor, choice, rationale, reasoning, outcome } = decision;
+      return { time, actor, choice, rationale, reasoning, outcome,
+        aiWrittenFields: writtenFields(decision, { choice: [choice], rationale: [rationale], reasoning: [reasoning] }) };
+    }),
+    specialistNotes: artifact.specialistNotes?.map(note => {
+      const { domain, summary, detail } = note;
+      return { domain, summary,
+        aiWrittenFields: writtenFields(note, {
+          summary: [summary],
+          risks: (detail?.risks ?? []).map(risk => risk.description),
+          recommendedActions: detail?.recommendedActions ?? [],
+        }),
+        detail: { recommendedActions: detail?.recommendedActions, risks: detail?.risks } };
+    }),
   };
   await doc.attach(encoder.encode(JSON.stringify(attachment)), 'run.json', { mimeType: 'application/json' });
 

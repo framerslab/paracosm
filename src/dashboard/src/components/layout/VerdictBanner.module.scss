@@ -159,7 +159,9 @@
   &:hover { color: var(--text-1); }
 }
 
-/* On wide screens the winner's name can wrap beside the headline. */
+/* Wider than 768 px the banner is one row. A long winner's name wraps
+   before the headline column narrows past 192 px, so the headline keeps
+   whole words. */
 @media (min-width: 769px) {
   .winnerLabel {
     flex: 0 1 auto;
@@ -170,6 +172,8 @@
     white-space: normal;
     overflow-wrap: anywhere;
   }
+
+  .headlineColumn { min-width: 192px; }
 }
 
 /* Give the winner and headline the full width on phones and portrait tablets. */

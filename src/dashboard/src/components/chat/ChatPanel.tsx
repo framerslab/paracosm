@@ -1,7 +1,7 @@
 import { AiWritten, isAiWritten } from '../shared/AiWritten';
 import { readTabKeyOverrides } from '../../hooks/useLastLaunchConfig';
 import { sessionProviderKeys, visitorKeyTransportError } from '../settings/sessionProviderKeys';
-import { useState, useRef, useEffect, useMemo, type CSSProperties } from 'react';
+import { useState, useRef, useEffect, useMemo, useId, type CSSProperties } from 'react';
 import { useScenarioContext } from '../../App';
 import type { GameState } from '../../hooks/useGameState';
 import styles from './ChatPanel.module.scss';
@@ -154,6 +154,7 @@ function EventContext({ memory, events, scenario }: { memory: AgentMemoryInfo; e
 
 export function ChatPanel({ state, onChatUsage }: ChatPanelProps) {
   const scenario = useScenarioContext();
+  const chatNoticeId = useId();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // Per-agent message threads — switching agents no longer wipes history.
   // The server-side AgentOS session also keeps its own history, so messages
@@ -534,7 +535,7 @@ export function ChatPanel({ state, onChatUsage }: ChatPanelProps) {
 
       {/* Chat area */}
       <div className={styles.chatArea}>
-        {selectedId && <p className={styles.chatNotice}>Replies are written by an AI model.</p>}
+        {selectedId && <p id={chatNoticeId} className={styles.chatNotice}>Replies are written by an AI model.</p>}
         {/* Memory bar */}
         {selected?.memory && (selected.memory.beliefs?.length > 0 || selected.memory.stances?.length > 0) && (
           <div className={styles.memoryBar}>
@@ -663,6 +664,7 @@ export function ChatPanel({ state, onChatUsage }: ChatPanelProps) {
             onKeyDown={e => e.key === 'Enter' && send()}
             disabled={!selectedId || sending}
             aria-label={selectedId ? `Message ${selected?.name || 'agent'}` : 'Select an agent first'}
+            aria-describedby={selectedId ? chatNoticeId : undefined}
             placeholder={selectedId ? `Ask ${selected?.name || 'agent'}...` : `Select a ${scenario.labels.populationNoun.replace(/s$/, '')} first`}
             className={styles.inputField}
           />
