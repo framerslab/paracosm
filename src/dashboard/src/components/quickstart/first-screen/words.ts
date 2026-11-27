@@ -11,10 +11,10 @@
 export const NBSP = '\u00a0';
 
 /** The page's title, as the browser's tab shows it. */
-export const PAGE_TITLE = 'Watch AI leaders run the same scenario | Paracosm';
+export const PAGE_TITLE = 'Simulate one scenario side by side under different leaders | Paracosm';
 
-/** The page's description, in the same words as its title. */
-export const PAGE_DESCRIPTION = 'Read each AI leader’s orders and full prompt, compare leaders side by side, then watch 2 to 300 of them run the same scenario turn by turn.';
+/** The page's description for search and sharing. */
+export const PAGE_DESCRIPTION = 'Simulate the same scenario 2 to 300 times from the same start and compare where the runs part, turn by turn. An AI event director writes each run’s unscripted crises, and only the leader differs: read each one’s personality scores and orders before you start.';
 
 /** The short capital mark over the scenario's name. */
 export const SCENARIO_MARK = 'SCENARIO';
@@ -28,22 +28,20 @@ export function countOf(n: number, one: string, many: string): string {
 }
 
 /**
- * The three sentences under the scenario's name: what the AI leaders do,
- * what Start does and what ends the run, written for the run's size. A pair
- * ends in a verdict; 3 to 300 leaders end in a report that ranks them. While
- * no free run is left and Start is replaced, the middle sentence, which
- * names Start, is left out. The last two words stay on one line, so the
- * paragraph never ends on a single word.
+ * The sentences under the scenario's name describe the shared start, the
+ * event director and what differs between runs. A pair ends in a verdict.
+ * A cohort ends in a report that ranks its leaders. The sentence about
+ * Start appears when Start is available. The last two words stay together.
  */
 export function scenarioSentences(o: { n: number; turns: number; place?: string; atLimit: boolean }): string {
   const place = o.place?.trim() || FALLBACK_PLACE;
-  const leaders = o.n <= 2 ? 'Two AI leaders' : `${o.n}${NBSP}AI leaders`;
-  const first = `${leaders} each run ${place} for ${countOf(o.turns, 'turn', 'turns')}, each under its own orders.`;
+  const runs = o.n <= 2 ? 'Two runs' : `${o.n}${NBSP}runs`;
+  const comparison = `${runs} of ${place} start from the same state and play for ${countOf(o.turns, 'turn', 'turns')}, and an AI event director writes each run’s unscripted crises from what happens in it. Only the leader differs: its personality and its orders.`;
   const press = 'Press Start to watch them decide.';
   const end = o.n <= 2
     ? `At the end, a verdict says who won and${NBSP}why.`
     : `At the end, a report ranks them on morale, population and${NBSP}deaths.`;
-  return o.atLimit ? `${first} ${end}` : `${first} ${press} ${end}`;
+  return o.atLimit ? `${comparison} ${end}` : `${comparison} ${press} ${end}`;
 }
 
 /** Said beside the broken-link mark while the page asks for the scenario again. */
