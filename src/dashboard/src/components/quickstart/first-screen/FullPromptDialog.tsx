@@ -84,9 +84,11 @@ function PromptPart({ part, id, phone, pending, text, notes }: {
 }
 
 /** A modal with the current leader's exact first two inputs and a sample turn. */
-export function FullPromptDialog({ selection, payer, state, opener, online, onClose, onRetry }: {
+export function FullPromptDialog({ selection, payer, inRun, state, opener, online, onClose, onRetry }: {
   selection: PromptSelection;
   payer: Payer;
+  /** False when the scenario's written leaders do not fill the run, so Start writes new ones. */
+  inRun: boolean;
   state: PromptLoad;
   opener: HTMLButtonElement | null;
   online: boolean;
@@ -170,9 +172,10 @@ export function FullPromptDialog({ selection, payer, state, opener, online, onCl
       <p className="sr-only" role="status">{pending ? words.loading : answer ? words.loaded : ''}</p>
       <div ref={scroll} className={styles.scroll} aria-busy={pending} onScroll={syncCurrent}>
         <p className={styles.model}>
-          {model ? <>{words.freeModel} {model.provider} <code>{model.model}</code></> : payer !== 'host' ? words.ownModel : null}
+          {model ? <>{words.freeModel} {model.provider} <code>{model.model}</code></> : payer === 'own' ? words.ownModel : payer === 'server' ? words.serverModel : null}
         </p>
         <p className={styles.lead} data-text="body">{words.lead}</p>
+        {!inRun && <p className={styles.lead} data-text="body">{words.notInRun}</p>}
         {failure && (
           <div className={styles.problem}>
             <BrokenLinkMark className={styles.problemMark} />

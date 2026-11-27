@@ -26,7 +26,7 @@ import { useScenarioContext, useScenarioReady } from '../../../App';
 import type { ScenarioClientPayload } from '../../../hooks/useScenario';
 import { useMediaQuery } from '../../viz/grid/useMediaQuery';
 import { FullPromptDialog } from './FullPromptDialog';
-import type { Payer } from './effectiveLaunch';
+import { writtenLeaders, type Payer } from './effectiveLaunch';
 import { useLeaderPrompt, type PromptSelection } from './useLeaderPrompt';
 import { SectionMark } from './marks';
 import { ScoreBar, ScoreRows, TRAIT_ORDER, readScores, scoreFigure, traitShown, type HexacoTrait } from './ScoreRows';
@@ -375,7 +375,7 @@ export function LeaderPair({ size = 2, payer }: LeaderPairProps) {
         </>
       )}
       {selection && (
-        <FullPromptDialog selection={selection} payer={payer} state={state}
+        <FullPromptDialog selection={selection} payer={payer} inRun={writtenLeaders(scenario).length >= size} state={state}
           opener={opener.current} onClose={closePrompt} onRetry={retry} online={online} />
       )}
     </section>
