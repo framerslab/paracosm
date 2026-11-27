@@ -68,7 +68,12 @@ async function expectInkOutsideCanvas(watch: Locator) {
         const style = getComputedStyle(element);
         return [style.color, style.backgroundColor, style.borderTopColor, style.borderRightColor, style.borderBottomColor, style.borderLeftColor].includes(teal);
       })
-      .map(element => element.tagName + ' ' + (element.getAttribute('class') ?? ''));
+      .map(element => ({
+        tag: element.tagName,
+        class: element.getAttribute('class'),
+        label: element.getAttribute('aria-label'),
+        text: element.textContent?.trim().slice(0, 80),
+      }));
   });
   expect(offenders).toEqual([]);
 }
@@ -126,6 +131,18 @@ test('one turn compares the two decisions while they arrive', async ({ browser }
           }
         }
         await page.mouse.move(0, 0);
+        if (width >= 768) {
+          const featured = grid.getByTestId('watch-grid-panel').nth(1).getByRole('button', { name: /^Spotlight:/ }).first();
+          await expect(featured).toBeVisible();
+          expect(await featured.evaluate(element => {
+            const ink = document.createElement('span');
+            ink.style.color = 'var(--text-1)';
+            element.append(ink);
+            const expected = getComputedStyle(ink).color;
+            ink.remove();
+            return getComputedStyle(element.querySelector('[aria-hidden]')!).color === expected;
+          })).toBe(true);
+        }
         await expectInkOutsideCanvas(watch);
         for (const text of ['RISKY WIN', 'SAFE WIN', 'RISKY LOSS', 'SAFE LOSS']) {
           await expect(watch.getByText(text, { exact: false }).filter({ visible: true }).first()).toBeVisible();

@@ -550,6 +550,8 @@ test.describe('the other copy keys and the Library\'s address', () => {
     await page.waitForTimeout(1_000);
     await expect(page.getByRole('button', { name: 'Expand verdict' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Copy verdict as markdown' })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Expand verdict' }).click();
+    await expect(page.getByRole('button', { name: 'Copy verdict as markdown' })).toBeVisible();
   });
 
   test('a verdict export answered after a later press leaves what the later press showed', async ({ page }) => {
