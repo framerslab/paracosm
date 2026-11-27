@@ -5679,6 +5679,35 @@ screenTest('How it works reads the batch', async ({ page }) => {
   expect(response.request().postDataJSON().economics).toEqual({ profileId: 'quality', batchConcurrency: 3 });
 });
 
+screenTest('the paste form estimate reads the batch', async ({ page }) => {
+  test.setTimeout(120_000);
+  await saveKey(page);
+  let batch: number | undefined = 1;
+  await editServerAnswer(page, 'admin-config', body => {
+    if (batch === undefined) delete body.batch;
+    else body.batch = { maxConcurrency: batch };
+  });
+  const root = await openReadyAt(page, '/sim', PHONE, 'dark');
+  const part = root.getByTestId('write-your-own');
+  const slider = part.locator('#quickstart-actor-count');
+  /** Moves the Actors slider to `n` with the keyboard, from its least value of 1. */
+  const toActors = async (n: number) => {
+    await slider.focus();
+    await slider.press('Home');
+    for (let i = 1; i < n; i++) await slider.press('ArrowRight');
+    await expect(slider).toHaveValue(String(n));
+  };
+  // 24 leaders one at a time are 24 batches of about 5 minutes after 2 minutes of setup.
+  await toActors(24);
+  await expect(part).toContainText('122–183 min');
+  batch = undefined;
+  await page.reload();
+  await expect(activeStart(root)).toBeVisible();
+  // With no batch figure the estimate keeps the default profile's 8 at a time: 3 batches.
+  await toActors(24);
+  await expect(part).toContainText('17–26 min');
+});
+
 screenTest('catalog rows follow the payer', async ({ page }) => {
   test.setTimeout(120_000);
   const setups = countSetups(page);

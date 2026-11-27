@@ -273,6 +273,14 @@ test('catalog facts follow the resolved visitor row', async () => {
       if (typeof expected.summary === 'string') assert.equal(own[0].summary, expected.summary);
       else assert.equal(Object.hasOwn(own[0], 'summary'), false);
     }
+
+    // An older compile wrote the first preset's leaders as `actors`; Start runs them, so the row names them.
+    const legacy = station('legacy-actors-station', 'Legacy station');
+    assert.equal((await store(a, {
+      ...legacy,
+      presets: [{ id: 'legacy', label: 'Legacy', actors: [{ ...first, name: 'Legacy One' }, { ...first, name: 'Legacy Two' }] }],
+    })).status, 200);
+    assert.deepEqual((await entry(a, 'legacy-actors-station'))?.leaders, ['Legacy One', 'Legacy Two']);
   }, {
     files,
     env: { PARACOSM_HOSTED_DEMO: 'true', PARACOSM_PLATFORM_API: '' },
