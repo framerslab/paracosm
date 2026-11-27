@@ -761,7 +761,7 @@ export async function handleGenerateActors(
   } catch (err) {
     // A provider that refuses the visitor's own key is answered as that, in
     // fixed words: the provider's text, which can echo part of the key, stays here.
-    if (!calls.hostPaid && classifyProviderError(err).kind === 'auth') {
+    if (!calls.hostPaid && refusesKey(err)) {
       res.writeHead(401, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'key_refused', message: 'The provider refused your API key.' }));
       return;
@@ -769,6 +769,12 @@ export async function handleGenerateActors(
     res.writeHead(500, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: `Actor generation failed: ${String(err)}` }));
   }
+}
+
+/** A provider's refusal of the key: its 401 status, or the words the provider classifier reads as one. */
+function refusesKey(err: unknown): boolean {
+  const status = typeof err === 'object' && err !== null ? (err as { httpStatus?: unknown }).httpStatus : undefined;
+  return status === 401 || classifyProviderError(err).kind === 'auth';
 }
 
 /**
