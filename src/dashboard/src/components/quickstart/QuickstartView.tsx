@@ -9,6 +9,7 @@ import { InterventionDemoCard } from '../digital-twin/InterventionDemoCard';
 import { CompareModal } from '../compare/CompareModal.js';
 import { ReplayLastRunCTA } from './ReplayLastRunCTA';
 import { RunFirstScreen } from './first-screen/RunFirstScreen';
+import type { RunEntry } from './first-screen/StartBand';
 import { presetLeadersForLaunch, type LoadedRunOptions } from './first-screen/effectiveLaunch';
 import { QuickstartProgress, type Stage, type ActorProgress } from './QuickstartProgress';
 import { QuickstartResults } from './QuickstartResults';
@@ -53,6 +54,7 @@ interface SseResultItem {
 }
 
 export interface QuickstartViewProps {
+  entry: RunEntry | null;
   sse: {
     events: SimEvent[];
     results: SseResultItem[];
@@ -144,7 +146,7 @@ function mapLaunchErrorToMessage(raw: string): string {
   return raw;
 }
 
-export function QuickstartView({ sse, sessionId, onRunStarted, showsDigitalTwin = false, onInterventionResult, onInterventionStart, onInterventionError }: QuickstartViewProps) {
+export function QuickstartView({ entry, sse, sessionId, onRunStarted, showsDigitalTwin = false, onInterventionResult, onInterventionStart, onInterventionError }: QuickstartViewProps) {
   const scenario = useScenarioContext();
   const { toast } = useToast();
   const [phase, setPhase] = useState<Phase>({ kind: 'input' });
@@ -168,7 +170,7 @@ export function QuickstartView({ sse, sessionId, onRunStarted, showsDigitalTwin 
    * differs (~0s vs ~30s).
    *
    * The first screen's Start passes `opts`: the body it worked out, and
-   * two callbacks. With them the first screen stays in view until the page
+   * callbacks. With them the first screen stays in view until the page
    * moves to the run: no progress panel, no toast and no banner. Each stage
    * (writing the leaders, starting) and each failed request (its status and
    * parsed answer, or no answer at all) goes to the callbacks, and the first
@@ -294,6 +296,7 @@ export function QuickstartView({ sse, sessionId, onRunStarted, showsDigitalTwin 
         // making the click look silently broken.
         const setupData = (await setupRes.json().catch(() => ({}))) as { redirect?: string; runKey?: string };
         if (setupData.redirect) {
+          opts?.onAccepted?.();
           handOffLaunch(setupData.redirect, setupData.runKey, setupBody);
           return;
         }
@@ -384,6 +387,7 @@ export function QuickstartView({ sse, sessionId, onRunStarted, showsDigitalTwin 
       }
       const setupData = (await setupRes.json().catch(() => ({}))) as { redirect?: string; runKey?: string };
       if (setupData.redirect) {
+        opts?.onAccepted?.();
         handOffLaunch(setupData.redirect, setupData.runKey, setupBody);
         return;
       }
@@ -600,7 +604,7 @@ export function QuickstartView({ sse, sessionId, onRunStarted, showsDigitalTwin 
   return (
     <div className={styles.view}>
       {phase.kind === 'input' && (
-        <RunFirstScreen onStart={handleLoadedScenarioRun} onSeedReady={handleSeedReady}>
+        <RunFirstScreen entry={entry} onStart={handleLoadedScenarioRun} onSeedReady={handleSeedReady}>
           {errorBanner && <p className={styles.errorBanner} role="alert">{errorBanner}</p>}
           <ReplayLastRunCTA />
           {/* Digital-twin demo lives BELOW the seed input as a

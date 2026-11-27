@@ -60,7 +60,7 @@ A local server and `platform_api` mode answer every caller that reaches the rout
 | GET    | `/admin-config` | What the dashboard may show: server mode, run caps and bounds, batch concurrency, key presence, the key idle time |
 | GET    | `/scenarios` | The scenarios this visitor can run, with their figures, leaders and labels |
 | POST   | `/forget-keys` | Drop the run and chat agents that hold this visitor's keys |
-| POST   | `/api/event` | Hosted demo only: one page view from the consent bar, forwarded as the public page it names to the site's Plausible count |
+| POST   | `/api/event` | Hosted demo only: one page view from the consent bar, or one named dashboard event, forwarded as the public page it names to the site's Plausible count |
 
 ---
 
@@ -375,24 +375,66 @@ Always reachable (not gated by `paracosmRoutesEnabled`). Lets a public-demo clie
 
 ## `POST /api/event`
 
-Served on the hosted demo alone (`PARACOSM_HOSTED_DEMO=true`); elsewhere the path answers `404`. The consent bar's script (`assets/consent/consent.js`) sends one page view per path while the visitor's count purpose is on, and the server forwards it to the shared Plausible instance with the visitor's `User-Agent` and address, as Plausible's [events API](https://plausible.io/docs/events-api) asks. The address is the connection's, or the `PARACOSM_CLIENT_IP_HEADER` header's value as the rate limits read it. The count limit below keys on it as the other per-client limits do (an IPv6 address by its /64), holds it in memory only, and drops it when its minute ends.
+Served on the hosted demo alone (`PARACOSM_HOSTED_DEMO=true`); elsewhere the path answers `404`. It takes two kinds of body. The consent bar's script (`assets/consent/consent.js`) sends one page view per path, and the dashboard at `/sim` sends one named event when a visitor uses the Run screen or moves between its sections. The server forwards each to the shared Plausible instance with the visitor's `User-Agent` and address, as Plausible's [events API](https://plausible.io/docs/events-api) asks. The address is the connection's, or the `PARACOSM_CLIENT_IP_HEADER` header's value as the rate limits read it. The count limit below keys on it as the other per-client limits do (an IPv6 address by its /64), holds it in memory only, and drops it when its minute ends.
+
+**When a browser sends it.** Both kinds go while the visitor's count purpose is on. The count is on before the visitor answers the consent bar, and stops on Reject all, on the count's own switch, or when the browser sends Global Privacy Control or Do Not Track. The dashboard reads the consent bar's current answer at each action and keeps no queue, so an action made while the count is off is never sent later. A page with no consent bar, which is every self-hosted server, sends neither kind. The same named events reach Google Analytics 4 only after a yes to measure, and Microsoft Clarity, by name alone and only for the events the table marks, after a yes to record. Those two go from the browser to their vendor and never through this route.
 
 **Request body** (any content type; at most 4,096 bytes)
+
+A page view:
 
 ```json
 { "n": "pageview", "u": "/sim" }
 ```
 
-`u` is the page's path. The server forwards one of the site's public pages in its place, on the counted domain: `/` (for `/` and `/index.html`), `/sim` (for `/sim` and any path under it, whose rest is never sent), or a built API docs page under its own path. A query string or fragment never leaves the server. No referrer is sent: the server ignores any other field of the body.
+`u` is the page's path. The server forwards one of the site's public pages in its place, on the counted domain: `/` (for `/` and `/index.html`), `/sim` (for `/sim` and any path under it, whose rest is never sent), or a built API docs page under its own path. A query string or fragment never leaves the server. No referrer is sent: the server ignores any other field of a page view's body.
+
+A named event:
+
+```json
+{ "n": "qs_pair_switch", "u": "/sim", "p": { "to": "2" } }
+```
+
+The body holds exactly `n`, `u` and `p`. `n` is one of the nine names below. `u` is the dashboard's path, `/sim` or a path under it. `p` holds exactly that event's fields, each a string from the field's list, and `{}` for an event with no fields. The server copies those values and nothing else. Another name, a missing, extra or inherited field, a value off its list, free text, a number, an array or `null` in place of a value, a key other than `n`, `u` and `p`, or a malformed path answers `400`, and nothing is forwarded. A path outside the dashboard answers `204`.
+
+| Event | Sent when | Fields and their values | Clarity |
+|-------|-----------|-------------------------|---------|
+| `qs_view` | The Run screen's input shows, once its state is known | `state`: `ready`, `no_run_left`. `entry`: `direct`, `from_landing`, `from_tab` | Yes |
+| `qs_start` | An enabled Start takes a press | `picked`: `yes`, `no`. `key`: `host`, `own`, `server`. `size`: `2`, `3_8`, `9_24`, `25_100`, `101_300` | Yes |
+| `run_started` | A launch from the Run screen opens Watch | `key`: `host`, `own` | Yes |
+| `run_failed` | That launch ends before its run opens | `reason`: `no_run_left`, `capacity`, `network`, `key_refused`, `other` | Yes |
+| `qs_how_open` | The header opens How it works | none | No |
+| `qs_no_run_left_view` | The Start band shows the daily limit | none | Yes |
+| `qs_no_run_left_action` | At that limit, a visitor picks the offered replay or Settings | `action`: `replay_last`, `add_key` | Yes |
+| `qs_pair_switch` | The narrow layout shows the other leader of a pair | `to`: `1`, `2` | No |
+| `tab_change` | A visitor picks a different section in the header's section row or its More menu; links inside a page that open another section are not counted | `to`: `quickstart`, `sim`, `reports`, `studio`, `viz`, `chat`, `library`, `settings`, `about` | No |
+
+`size` gives the number of leaders as a range: 2, 3 to 8, 9 to 24, 25 to 100, or 101 to 300.
+
+**What the server forwards**
+
+A page view goes to the instance as its name and its public page:
+
+```json
+{ "name": "pageview", "url": "https://paracosm.agentos.sh/sim", "domain": "paracosm.agentos.sh" }
+```
+
+A named event goes with its copied fields as `props`, and always under the dashboard's public address:
+
+```json
+{ "name": "qs_pair_switch", "url": "https://paracosm.agentos.sh/sim", "domain": "paracosm.agentos.sh", "props": { "to": "2" } }
+```
+
+The rest of the path, any query string and any fragment stay on the server, and no referrer or cookie is sent. The request to the instance carries the visitor's `User-Agent` and an `X-Forwarded-For` header with the address.
 
 **Responses**
 
-- `202`: the instance took the page view
-- `204`: nothing was forwarded, because the request sent a privacy signal (`Sec-GPC: 1` or `DNT: 1`), came from a page on another site (the rule in "Base URL and gating"), or named a path that is no page of the site
-- `400 invalid_event`: the body is not a page view of a path, or the request has no `User-Agent`
+- `202`: the instance took the page view or event
+- `204`: nothing was forwarded, because the request sent a privacy signal (`Sec-GPC: 1` or `DNT: 1`), came from a page on another site (the rule in "Base URL and gating"), or named a path that is no page of the site (for a named event, a path outside the dashboard)
+- `400 invalid_event`: the body is neither a page view of a path nor a named event that passes the checks above, or the request has no `User-Agent`
 - `405`: a method other than `POST`
 - `413 body_too_large`: the body is over 4,096 bytes
-- `429 too_many_events`: the address (an IPv6 address by its /64) has sent 120 page views in its current minute, or 32 forwards are open at once; nothing is forwarded, and `Retry-After` is 60 seconds
+- `429 too_many_events`: the address (an IPv6 address by its /64) has sent 120 page views and named events together in its current minute, or 32 forwards are open at once across all visitors; nothing is forwarded, and `Retry-After` is 60 seconds
 - `502`: the instance did not take it (refused, unreachable or slower than 5 seconds)
 
 ## `GET /rate-limit`

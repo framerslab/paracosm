@@ -68,7 +68,7 @@ import { resolveServerMode } from './server-mode.js';
 import {
   countAddresses,
   COUNT_FORWARDS_AT_ONCE,
-  countEventFrom,
+  countedEvent,
   CountEventLimit,
   forwardCountEvent,
   PLAUSIBLE_EVENT_URL,
@@ -2397,9 +2397,8 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   };
 
   /**
-   * POST /api/event on the hosted demo: one page view from the consent bar's
-   * script (assets/consent/consent.js), forwarded to the shared Plausible
-   * instance as the public page it names (countEventFrom), with nothing of
+   * POST /api/event forwards one page view or approved dashboard event
+   * to the shared Plausible instance under its public page, with nothing of
    * the referring page, and with the visitor's full User-Agent header and
    * one address, as its events API asks. A request from another site, one that
    * sends a privacy signal, or a path that is no page of the site is
@@ -2418,9 +2417,9 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       res.end();
       return;
     }
-    let event: ReturnType<typeof countEventFrom>;
+    let event: ReturnType<typeof countedEvent>;
     try {
-      event = countEventFrom(await readBody(req, 4096), isDocsPage);
+      event = countedEvent(await readBody(req, 4096), isDocsPage);
     } catch (error) {
       // The answer names the refusal alone, never the error's text.
       const tooLarge = error instanceof RequestBodyTooLargeError;
@@ -2454,7 +2453,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     }
     if (!accepted && Date.now() - countForwardWarnedAt > 60_000) {
       countForwardWarnedAt = Date.now();
-      console.warn('  [analytics] The Plausible instance did not accept a page view; further failures this minute are not logged.');
+      console.warn('  [analytics] The Plausible instance did not accept an event; further failures this minute are not logged.');
     }
     res.writeHead(accepted ? 202 : 502, { 'Cache-Control': 'no-store' });
     res.end();

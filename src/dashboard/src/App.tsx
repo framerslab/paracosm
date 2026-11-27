@@ -41,6 +41,8 @@ import { ReplayBanner, ReplayNotFoundBanner } from './components/layout/ReplayBa
 import { BranchesProvider } from './components/branches/BranchesContext';
 import { BranchesSyncer } from './components/branches/BranchesSyncer';
 import { QuickstartView } from './components/quickstart/QuickstartView';
+import type { RunEntry } from './components/quickstart/first-screen/StartBand';
+import { sendEvent } from './analytics/send';
 import { useCitationRegistry, CitationRegistryContext } from './hooks/useCitationRegistry';
 import { useToolRegistry, ToolRegistryContext } from './hooks/useToolRegistry';
 import { ForgeViewProvider } from './components/forge/ForgeViewProvider';
@@ -241,7 +243,10 @@ function AppContent() {
   // tab. Nothing opens it by itself.
   const [howItWorksOpen, setHowItWorksOpen] = useState(false);
   const howItWorksKeyRef = useRef<HTMLButtonElement | null>(null);
-  const toggleHowItWorks = useCallback(() => setHowItWorksOpen(open => !open), []);
+  const toggleHowItWorks = useCallback(() => {
+    if (!howItWorksOpen) sendEvent('qs_how_open', {});
+    setHowItWorksOpen(!howItWorksOpen);
+  }, [howItWorksOpen]);
   const closeHowItWorks = useCallback(() => setHowItWorksOpen(false), []);
 
   // Global verdict banner. Closable by the user; a dismissal belongs to
@@ -305,8 +310,22 @@ function AppContent() {
   // so old deep links keep working.
   const initialRoute = getDashboardTabAndSubFromHref(window.location.href);
   const [activeTab, setActiveTabState] = useState<DashboardTab>(initialRoute.tab);
+  const [initialRunEntry] = useState<RunEntry>(() => {
+    try {
+      const from = new URL(document.referrer);
+      if (from.origin === window.location.origin && (from.pathname === '/' || from.pathname === '/index.html')) {
+        return 'from_landing';
+      }
+    } catch {
+      // Direct navigation can have an empty referrer.
+    }
+    return 'direct';
+  });
+  const visitedOtherTab = useRef(initialRoute.tab !== 'quickstart');
+  const runEntry = activeTab === 'quickstart' ? (visitedOtherTab.current ? 'from_tab' : initialRunEntry) : null;
   const pageRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
+    if (activeTab !== 'quickstart') visitedOtherTab.current = true;
     if (pageRef.current) pageRef.current.scrollTop = 0;
   }, [activeTab]);
   const [studioInitialSubTab] = useState<'author' | 'branches'>(
@@ -326,6 +345,11 @@ function AppContent() {
     setActiveTabState(tab);
     window.history.replaceState({}, '', createDashboardTabHref(window.location.href, tab));
   }, []);
+  const changeFrameTab = useCallback((tab: DashboardTab) => {
+    if (tab !== activeTab) sendEvent('tab_change', { to: tab });
+    setActiveTab(tab);
+  }, [activeTab, setActiveTab]);
+
   // The navigation components get. A trace's Show in Event Log opens the
   // Event Log with the tool's filter, and a toolbox actor's with that actor's:
   // the URL is written before the panel mounts, so EventLogPanel reads the
@@ -1059,7 +1083,7 @@ function AppContent() {
           ) : null}
           <TopBar
             activeTab={activeTab}
-            onTabChange={setActiveTab}
+            onTabChange={changeFrameTab}
             scenario={scenario}
             hasEvents={Object.values(gameState.actors).some(actor => actor.events.length > 0)}
             onSave={handleSave}
@@ -1138,6 +1162,7 @@ function AppContent() {
                 className={activeTab === 'quickstart' ? styles.tabPanel : styles.tabPanelHidden}
               >
                 <QuickstartView
+                  entry={runEntry}
                   sse={sse}
                   sessionId={replaySessionId ?? undefined}
                   onRunStarted={leaveDigitalTwin}

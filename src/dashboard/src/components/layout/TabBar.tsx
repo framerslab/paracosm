@@ -61,7 +61,7 @@ export function TabBar({ active, onTabChange, scenario, moreFirstLine, headerFol
   const items: SectionMenuItem[] = MENU_TABS
     .filter(tab => tab !== 'chat' || scenario.policies.characterChat)
     .map(tab => ({
-      tab: tab === 'about' ? undefined : tab,
+      tab,
       label: TAB_NAMES[tab],
       description: MORE_TAB_LINES[tab],
       href: tabHref(tab),
