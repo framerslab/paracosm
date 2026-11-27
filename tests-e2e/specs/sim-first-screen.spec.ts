@@ -12,8 +12,8 @@
  *
  * The scenario line (feature 3):
  * - The scenario's name is the page's one h1, visible, under the mark
- *   SCENARIO; three sentences say what the AI leaders do, what Start does
- *   and what ends the run; one line of figures gives the run's people,
+ *   SCENARIO; the sentences describe the timelines and what makes them differ,
+ *   what Start does and what ends the run. A line of figures gives the run's people,
  *   departments, turns and events a turn, as the run will use them: the
  *   host's caps on a free run, the scenario's own on a visitor's key.
  * - Shapes of the final size stand until the scenario answers, and the
@@ -165,8 +165,8 @@ const sizeAt = (width: number) => ({ width, height: width < 900 ? 844 : 900 });
 const PHONE = sizeAt(390);
 const WIDE = sizeAt(1440);
 
-/** The three sentences of a pair, with the fallback place phrase every scenario reads until scenarios name their place. */
-const PAIR_SENTENCES = 'Two AI leaders each run this scenario for 6 turns, each under its own orders. Press Start to watch them decide. At the end, a verdict says who won and why.';
+/** The sentences for a pair whose scenario names no place. */
+const PAIR_SENTENCES = 'Two runs of this scenario start from the same state and play for 6 turns, and an AI event director writes each run’s crises from what happens in it. Only the leader differs: its personality and its orders. Press Start to watch them decide. At the end, a verdict says who won and why.';
 /** A free run of Mars Genesis, under the hosted demo's caps of 30 people, 3 departments and 6 turns. */
 const FREE_FIGURES = '30 people · 3 departments · 6 turns · up to 2 events a turn';
 /** The same figures as a screen reader reads them, as one sentence. */
@@ -175,7 +175,7 @@ const FREE_FIGURES_SPOKEN = '30 people, 3 departments, 6 turns, up to 2 events a
 const OWN_KEY_FIGURES = '100 people · 5 departments · 6 turns · up to 2 events a turn';
 const DID_NOT_LOAD = 'The scenario did not load. Trying again.';
 const OFFLINE = 'You are offline. The scenario loads when you are back online.';
-const TITLE = 'Watch AI leaders run the same scenario | Paracosm';
+const TITLE = 'Simulate one scenario side by side under different leaders | Paracosm';
 
 /** Mars Genesis's two written leaders, with their six scores to two places in the order the cards draw them. */
 const ARIA = { place: '1', name: 'Aria Chen', title: 'The Visionary', scores: ['0.95', '0.35', '0.85', '0.55', '0.30', '0.65'] };
@@ -197,7 +197,7 @@ const COLONY_KEY = ['Department', 'Person', 'Featured person'];
 const NO_KEY_PEOPLE = 'This scenario names no key people. Its colony is drawn when the run starts.';
 /** The field's height at each width the panel is laid out for. */
 const FIELD_HEIGHTS: ReadonlyArray<readonly [number, number]> = [[320, 170], [390, 190], [600, 200], [1100, 250], [1440, 280]];
-const DESCRIPTION = 'Read each AI leader’s orders and full prompt, compare leaders side by side, then watch 2 to 300 of them run the same scenario turn by turn.';
+const DESCRIPTION = 'Simulate the same scenario 2 to 300 times from the same start and compare where the runs part, turn by turn. An AI event director writes each run’s crises, and only the leader differs: read each one’s personality scores and orders before you start.';
 
 let defined = 0;
 /**
@@ -1557,7 +1557,7 @@ const FREE_SIZE_LINE = 'A free run has 2 leaders. With your own API key, a run c
 const CHOOSE_SIZE = 'Choose 2 to 300 leaders.';
 const SETTINGS_NOT_READ = 'The server’s settings could not be read. The server checks the size when you press Start.';
 const writesAll = (n: number) => `Paracosm writes all ${n} leaders from this scenario when the run starts, in place of these two.`;
-const cohortSentences = (n: number) => `${n} AI leaders each run this scenario for 6 turns, each under its own orders. Press Start to watch them decide. At the end, a report ranks them on morale, population and deaths.`;
+const cohortSentences = (n: number) => `${n} runs of this scenario start from the same state and play for 6 turns, and an AI event director writes each run’s crises from what happens in it. Only the leader differs: its personality and its orders. Press Start to watch them decide. At the end, a report ranks them on morale, population and deaths.`;
 const cohortCaption = (n: number) => `All ${n} colonies start with the same 100 people, these 5 among them. Each leader’s decisions make them diverge.`;
 
 const START_FREE = 'Start Mars Genesis: 6 turns, about 3 and a half minutes';
@@ -2541,7 +2541,7 @@ screenTest('feature 10: the bar and the band', async ({ page }) => {
 
 /** Midnight UTC on 22 Nov 2026: 4:00 PM on the day before in Los Angeles, 01:00 in Berlin. */
 const RESET_AT = Date.UTC(2026, 10, 22);
-const AT_LIMIT_SENTENCES = 'Two AI leaders each run this scenario for 6 turns, each under its own orders. At the end, a verdict says who won and why.';
+const AT_LIMIT_SENTENCES = 'Two runs of this scenario start from the same state and play for 6 turns, and an AI event director writes each run’s crises from what happens in it. Only the leader differs: its personality and its orders. At the end, a verdict says who won and why.';
 const NO_RUN_LEFT = 'Your internet address has no free runs left today.';
 const atLimitReset = (time: string) => `${NO_RUN_LEFT} They reset at ${time}.`;
 const REPLAY_FREE = 'You can replay a saved run for free.';
@@ -2685,7 +2685,7 @@ screenTest('feature 10: no free run left', async ({ page, browser }, info) => {
       }
     }
 
-    await test.step('with a key saved, Start and all three sentences return', async () => {
+    await test.step('with a key saved, Start and the sentence that names it return', async () => {
       await saveKey(page);
       const root = await openReadyAt(page, '/sim', PHONE, 'dark');
       await expect(startParts(root).key).toHaveAccessibleName(START_OWN_KEY);

@@ -427,12 +427,19 @@ test('/docs and /docs/ answer a permanent redirect to the API reference', async 
   }
 });
 
-test('the landing page title fits in 60 characters and its meta description in 120 to 160', () => {
+test('the landing page title fits in 60 characters', () => {
   const title = html.match(/<title>([^<]*)<\/title>/)?.[1] ?? '';
-  const description = html.match(/<meta name="description" content="([^"]*)">/)?.[1] ?? '';
-
   assert.ok(title.length > 0 && title.length <= 60, `the title has ${title.length} characters: ${title}`);
-  assert.ok(description.length >= 120 && description.length <= 160, `the description has ${description.length} characters: ${description}`);
+});
+
+test('the served landing page describes what differs between timelines', () => {
+  const description = 'Open-source TypeScript agent swarm simulator. Run one what-if as timelines from the same seed and change one thing between them: a leader’s HEXACO personality, an intervention, or an event at a past turn. An LLM event director writes each timeline’s crises from what happens in it.';
+  const lead = 'Type a scenario in plain English. Paracosm runs it as timelines side by side, all from the same start. An AI event director writes each timeline’s crises from what has happened in it so far. Change one thing between them, such as a leader’s personality, an intervention or an event at a past turn, and see where each one ends up.';
+  assert.equal(html.match(/<meta name="description" content="([^"]*)">/)?.[1], description);
+  assert.equal(html.match(/<meta property="og:description" content="([^"]*)">/)?.[1], description);
+  assert.equal(html.match(/<meta name="twitter:description" content="([^"]*)">/)?.[1], description);
+  assert.equal(html.match(/<p class="hero-positioning"[^>]*>([^<]*)<\/p>/)?.[1].trim(), lead);
+  assert.doesNotMatch(html, /LLM leaders with HEXACO personalities play it out|Generate three actors/);
 });
 
 test("the dashboard page's one static h1 sits inside #root, which React clears when the dashboard mounts", async (t) => {

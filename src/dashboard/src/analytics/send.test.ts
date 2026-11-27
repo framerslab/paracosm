@@ -23,7 +23,7 @@ function browser(choices: Purpose[] | null) {
 const view = { state: 'ready', entry: 'direct' };
 const context = {
   page_location: 'https://example.test/sim',
-  page_title: 'Watch AI leaders run the same scenario | Paracosm',
+  page_title: 'Simulate one scenario side by side under different leaders | Paracosm',
   page_referrer: '',
 };
 
