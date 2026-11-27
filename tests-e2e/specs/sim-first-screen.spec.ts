@@ -197,7 +197,7 @@ const COLONY_KEY = ['Department', 'Person', 'Featured person'];
 const NO_KEY_PEOPLE = 'This scenario names no key people. Its colony is drawn when the run starts.';
 /** The field's height at each width the panel is laid out for. */
 const FIELD_HEIGHTS: ReadonlyArray<readonly [number, number]> = [[320, 170], [390, 190], [600, 200], [1100, 250], [1440, 280]];
-const DESCRIPTION = 'Simulate the same scenario 2 to 300 times from the same start and compare where the runs part, turn by turn. An AI event director writes each run’s unscripted crises, and only the leader differs: read each one’s personality scores and orders before you start.';
+const DESCRIPTION = 'Simulate the same scenario 2 to 300 times from the same start and compare where the runs part, turn by turn. An AI event director writes each run’s unscripted crises, and only the leader differs: read both leaders’ personality scores and orders before a pair starts.';
 
 let defined = 0;
 /**
