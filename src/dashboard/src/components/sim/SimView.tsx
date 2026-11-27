@@ -240,7 +240,7 @@ export function SimView({ state, sseStatus, openReportTurn, verdict, shownRun, l
               popHistory={side?.popHistory ?? []} moraleHistory={side?.moraleHistory ?? []}
             />)}
           </div>
-          <TurnGrid state={state} />
+          <div className={styles.turnRows}><TurnGrid state={state} /></div>
         </> : <PairTurn
           key={`${shownRun}:${turn}`}
           turn={turn} maxTurns={state.maxTurns} data={data} place={place}

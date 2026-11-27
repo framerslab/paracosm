@@ -36,7 +36,7 @@ function Crisis({ info, noun }: { info: Record<string, unknown>; noun: string })
   return (
     <article className={styles.watchCrisis} aria-labelledby={heading}>
       <h3 id={heading}><AiWritten authored={isAiWritten(info, 'title')}>{title}</AiWritten></h3>
-      {typeof info.category === 'string' && <p className={styles.watchKind}>{info.category.charAt(0).toUpperCase() + info.category.slice(1)}</p>}
+      {typeof info.category === 'string' && <p className={styles.watchKind} data-testid="watch-crisis-kind">{info.category.charAt(0).toUpperCase() + info.category.slice(1)}</p>}
       {description && <>
         <AiWritten as="p" className={open ? styles.watchProse : styles.watchSummary} authored={authored}>
           <span id={body}>{description}</span>

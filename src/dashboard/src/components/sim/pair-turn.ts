@@ -21,9 +21,11 @@ export function pairTurnAt(state: GameState, turn: number): PairTurnData {
   const byIndex = new Map<number, PairTurnData['crises'][number]>();
   let time: number | undefined;
   for (const [place, { name }] of leaders.entries()) {
-    const events = state.actors[name]?.events ?? [];
+    const actor = state.actors[name];
+    const events = actor?.events ?? [];
+    const decisions = actor?.decisionEvents?.values() ?? [];
     let prior: { turn: number; figures: Record<string, number> } | undefined;
-    for (const event of events) {
+    for (const event of [...events, ...decisions]) {
       if (typeof event.turn !== 'number') continue;
       const { data } = event;
       if (event.turn < turn && event.type === 'turn_done' && data.metrics &&

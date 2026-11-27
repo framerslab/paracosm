@@ -85,6 +85,8 @@ export interface ActorSideState {
   environment?: Record<string, number | string | boolean>;
   event: TurnEventInfo | null;
   events: ProcessedEvent[];
+  /** Commander replies kept separately from the folded event list used by playback. */
+  decisionEvents?: Map<string, ProcessedEvent>;
   popHistory: number[];
   moraleHistory: number[];
   deaths: number;
@@ -292,6 +294,10 @@ function decisionsOf(artifact: unknown): Map<string, DecisionBarCheck | undefine
   return checks;
 }
 
+function decisionKey(turn: number | undefined, eventIndex: unknown): string {
+  return `${turn ?? ''}:${Number(eventIndex ?? 0)}`;
+}
+
 function readBarCheck(value: unknown): DecisionBarCheck | undefined {
   const b = value as Record<string, unknown> | null | undefined;
   if (!b || typeof b.boldChance !== 'number' || typeof b.bar !== 'number') return undefined;
@@ -467,7 +473,7 @@ export function computeGameState(sseEvents: SimEvent[], isComplete: boolean, res
     const processed: ProcessedEvent = {
       id: `${i}-${evt.type}`,
       type: evt.type,
-      turn: dd.turn as number | undefined,
+      turn: typeof dd.turn === 'number' ? dd.turn : evt.turn,
       time: dd.time as number | undefined,
       data: dd,
     };
@@ -571,7 +577,7 @@ export function computeGameState(sseEvents: SimEvent[], isComplete: boolean, res
         s.pendingReasoning = dd.reasoning as string || '';
         s.pendingPolicies = (dd.selectedPolicies as string[]) || [];
         s.pendingAiWrittenFields = dd.aiWrittenFields;
-        s.events.push(processed);
+        (s.decisionEvents ??= new Map()).set(decisionKey(processed.turn, dd.eventIndex), processed);
         break;
 
       case 'outcome': {
@@ -579,16 +585,9 @@ export function computeGameState(sseEvents: SimEvent[], isComplete: boolean, res
         s.outcome = outcome;
         s.decisions++;
         const barCheck = readBarCheck(dd.barCheck);
-        let decision: Record<string, unknown> | undefined;
-        for (let i = s.events.length - 1; i >= 0; i--) {
-          const event = s.events[i];
-          if (event.type === 'decision_made' && event.turn === processed.turn &&
-              Number(event.data.eventIndex ?? 0) === Number(dd.eventIndex ?? 0)) {
-            decision = event.data;
-            break;
-          }
-          if (event.type === 'turn_start' && event.turn === processed.turn) break;
-        }
+        const timedDecision = s.decisionEvents?.get(decisionKey(processed.turn, dd.eventIndex));
+        const untimedDecision = s.pendingDecision ? s.decisionEvents?.get(decisionKey(undefined, dd.eventIndex)) : undefined;
+        const decision = (timedDecision ?? untimedDecision)?.data;
         s.events.push({
           ...processed,
           data: {
