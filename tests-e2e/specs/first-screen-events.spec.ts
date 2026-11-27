@@ -371,7 +371,7 @@ for (const choice of ['own', 'team', 'neither', 'ready'] as const) {
         if (choice === 'neither') {
           await expect(page.getByTestId('replay-key')).toHaveCount(0);
           await page.getByTestId('add-key-link').click();
-          await expect(page).toHaveURL(url => url.searchParams.get('tab') === 'settings' && url.hash === '#key-openai');
+          await expect(page).toHaveURL(url => url.searchParams.get('tab') === 'settings' && url.searchParams.get('focus') === 'api-key');
           expected.push(event('qs_no_run_left_action', { action: 'add_key' }));
         } else {
           await page.getByTestId('replay-key').click();
