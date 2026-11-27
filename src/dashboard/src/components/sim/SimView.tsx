@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useMemo, useCallback } from 'react';
+import { Fragment, useRef, useEffect, useState, useMemo, useCallback } from 'react';
 import type { GameState, LeaderInfo } from '../../hooks/useGameState';
 import { useScenarioContext } from '../../App';
 import { leaderUnit } from '../../hooks/useScenarioLabels.helpers';
@@ -218,82 +218,56 @@ export function SimView({ state, sseStatus, openReportTurn, verdict, shownRun, l
 
   const columnsVisible = state.isRunning || state.isComplete || hasEvents || sseStatus === 'connected';
 
-  if (pair) return (
-    <div className={styles.root}>
-      <div className={styles.scrollableBody}>
-        {state.isRunning && !state.isComplete && state.maxTurns > 0 && (
-          <div className={styles.progressBar}>
-            <span className={styles.progressLabel}>Turn {turn} / {state.maxTurns}</span>
-            <div className={styles.progressTrack}><div className={styles.progressFill} style={{ width: `${progressPercent}%` }} /></div>
-            <span className={styles.progressPercent}>{Math.round(progressPercent)}%</span>
-          </div>
-        )}
-        {showingStack ? <>
-          <WatchGridPanels state={state} place={place} onSelectPlace={selectPlace} />
-          <button type="button" className={styles.watchKey} onClick={() => {
-            setStack(null);
-            requestAnimationFrame(() => document.getElementById('watch-turn-heading')?.focus());
-          }}>Back to one turn at a time</button>
-          <div className={`leaders-row ${styles.leadersRow} ${styles.watchHistoryLeaders}`}>
-            {[sideA, sideB].map((side, index) => <ActorBar
-              key={index} actorIndex={index} leader={side?.leader ?? null}
-              popHistory={side?.popHistory ?? []} moraleHistory={side?.moraleHistory ?? []}
-            />)}
-          </div>
-          <div className={`${styles.turnRows} ${styles.watchHistory}`}><TurnGrid state={state} /></div>
-        </> : <PairTurn
-          key={`${shownRun}:${turn}`}
-          turn={turn} maxTurns={state.maxTurns} data={data} place={place}
-          noun={scenario.labels.eventNounSingular ?? 'crisis'}
-          metrics={scenario.ui.headerMetrics}
-          reportHref={reportHref}
-          firstEvidence={!firstEvidence || firstEvidence.run !== shownRun || firstEvidence.turn === turn}
-          openReport={openReportTurn ? event => {
-            if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-            event.preventDefault();
-            openReportTurn(reportHref);
-          } : undefined}
-          grid={<WatchGridPanels state={state} place={place} onSelectPlace={selectPlace} />}
-        />}
-        {!showingStack && pairTurns.length >= 2 && <button type="button" className={styles.watchKey}
-          onClick={() => setStack(shownRun ?? '')}>Read all {pairTurns.length} turns at once</button>}
-        {state.isComplete && verdict?.winner != null && <VerdictPanel verdict={verdict} shownRun={shownRun} pairTone />}
-      </div>
-      <SimFooterBar citationRegistry={citationRegistry} toolRegistry={toolRegistry} />
-      <RerunPanel enabled={state.isComplete && !state.isRunning} />
-    </div>
+  // Exit Replay can clear the actor list while retaining the loaded verdict
+  // until the live stream names a run. Keep the same panel across that switch
+  // so a reader's collapsed state survives.
+  const verdictPanel = state.isComplete && verdict?.winner
+    ? <VerdictPanel key="verdict" verdict={verdict} shownRun={shownRun} pairTone={pair} />
+    : null;
+
+  const pairBody = (
+    <Fragment key="pair">
+      {state.isRunning && !state.isComplete && state.maxTurns > 0 && (
+        <div className={styles.progressBar}>
+          <span className={styles.progressLabel}>Turn {turn} / {state.maxTurns}</span>
+          <div className={styles.progressTrack}><div className={styles.progressFill} style={{ width: `${progressPercent}%` }} /></div>
+          <span className={styles.progressPercent}>{Math.round(progressPercent)}%</span>
+        </div>
+      )}
+      {showingStack ? <>
+        <WatchGridPanels state={state} place={place} onSelectPlace={selectPlace} />
+        <button type="button" className={styles.watchKey} onClick={() => {
+          setStack(null);
+          requestAnimationFrame(() => document.getElementById('watch-turn-heading')?.focus());
+        }}>Back to one turn at a time</button>
+        <div className={`leaders-row ${styles.leadersRow} ${styles.watchHistoryLeaders}`}>
+          {[sideA, sideB].map((side, index) => <ActorBar
+            key={index} actorIndex={index} leader={side?.leader ?? null}
+            popHistory={side?.popHistory ?? []} moraleHistory={side?.moraleHistory ?? []}
+          />)}
+        </div>
+        <div className={`${styles.turnRows} ${styles.watchHistory}`}><TurnGrid state={state} /></div>
+      </> : <PairTurn
+        key={`${shownRun}:${turn}`}
+        turn={turn} maxTurns={state.maxTurns} data={data} place={place}
+        noun={scenario.labels.eventNounSingular ?? 'crisis'}
+        metrics={scenario.ui.headerMetrics}
+        reportHref={reportHref}
+        firstEvidence={!firstEvidence || firstEvidence.run !== shownRun || firstEvidence.turn === turn}
+        openReport={openReportTurn ? event => {
+          if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+          event.preventDefault();
+          openReportTurn(reportHref);
+        } : undefined}
+        grid={<WatchGridPanels state={state} place={place} onSelectPlace={selectPlace} />}
+      />}
+      {!showingStack && pairTurns.length >= 2 && <button type="button" className={styles.watchKey}
+        onClick={() => setStack(shownRun ?? '')}>Read all {pairTurns.length} turns at once</button>}
+    </Fragment>
   );
 
-  return (
-    <div className={styles.root}>
-      {/*
-        Two-pane SimView shell:
-          • <div.scrollableBody> — everything that scrolls (the active
-            layout's content, plus Timeline). The app shell is
-            `overflow: hidden; height: 100dvh` to keep the topbar /
-            tab nav pinned, so SimView creates its own scroll context
-            here. Constellation mode (with DistributionPanel + ActorTable
-            + Timeline below the constellation SVG) easily exceeds
-            viewport height; without an internal scroll the bottom of
-            the column was simply clipped and unreachable.
-          • <SimFooterBar> + <RerunPanel> — sit OUTSIDE the scroll body
-            as flex siblings, so the layout-toggle row and rerun
-            controls stay glued to the bottom of the SIM panel
-            regardless of how much content is above. Sticky positioning
-            inside a flex column is fragile across browsers; siblings
-            outside the scroll context are not.
-      */}
-      <div className={styles.scrollableBody}>
-      {/* Inline verdict panel — appears at the top of the SIM body
-          when the run completes and the LLM verdict is in. Persistent
-          (not dismissable) so the winner + reasoning stays in place
-          while the user scrolls through the run details below. The
-          global VerdictBanner at the top of every tab remains the
-          dismissable surface; this panel is the always-visible
-          counterpart pinned to the SIM tab. */}
-      {state.isComplete && verdict && (verdict as Record<string, unknown>).winner ? (
-        <VerdictPanel verdict={verdict} shownRun={shownRun} />
-      ) : null}
+  const cohortBody = (
+    <Fragment key="cohort">
       {layout === 'constellation' ? (
         <>
           <ConstellationView
@@ -462,29 +436,26 @@ export function SimView({ state, sseStatus, openReportTurn, verdict, shownRun, l
         </div>
       )}
 
-      {/* Verdict surfaces as a global top banner (App.tsx) and inline
-          on the Reports tab. */}
-
-      {/* Timeline at bottom — gets the full vertical room now that
-          References / Toolbox have moved out of the inline column flow. */}
+      {/* Timeline takes the room below the comparison. */}
       <Timeline state={state} />
-      </div>
+    </Fragment>
+  );
 
-      {/* End-of-sim evidence bar: small pills that open References and
-          Forged Toolbox in modals. Sits OUTSIDE scrollableBody so the
-          layout-toggle row + reference/toolbox pills stay pinned at the
-          bottom of the SIM panel even when constellation-mode content
-          overflows the viewport. */}
+  return (
+    <div className={styles.root}>
+      <div className={styles.scrollableBody}>
+        {pair ? [pairBody, verdictPanel] : [verdictPanel, cohortBody]}
+      </div>
       <SimFooterBar
         citationRegistry={citationRegistry}
         toolRegistry={toolRegistry}
-        layoutToggle={
+        layoutToggle={pair ? undefined : (
           <SimLayoutToggle
             layout={layout}
             actorCount={state.actorIds.length}
             onChange={setLayoutWithOverride}
           />
-        }
+        )}
       />
 
       {/* Re-run-with-seed+1 epilogue. Extracted to its own file in F4
@@ -496,13 +467,13 @@ export function SimView({ state, sseStatus, openReportTurn, verdict, shownRun, l
           clicks around the SIM tab; for smaller runs the modal-style
           overlay matches the existing UX. Renders nothing when
           actorName is null. */}
-      <ActorDrillInModal
+      {!pair && <ActorDrillInModal
         actorName={drillInActor}
         actorIndex={drillInIndex >= 0 ? drillInIndex : 0}
         state={state}
         onClose={() => setDrillInActor(null)}
         mode={state.actorIds.length >= 5 ? 'dock' : 'modal'}
-      />
+      />}
     </div>
   );
 }

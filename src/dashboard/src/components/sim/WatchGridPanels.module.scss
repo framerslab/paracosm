@@ -89,6 +89,12 @@
 .pair .panel {
   [style*='--side-color:'] { --side-color: var(--text-1) !important; }
   [style*='--age-bg:']:not([style*='--age-bg: transparent']) { --age-bg: var(--edge-control) !important; }
+  button[aria-label^='Spotlight:'] {
+    border-color: var(--edge-control) !important;
+
+    > span[aria-hidden='true'] { color: var(--text-1) !important; }
+  }
+
   [data-testid^='living-colony-field-'] {
     --tint-color: var(--bg-deep) !important;
     --wrap-border: var(--edge-control) !important;
