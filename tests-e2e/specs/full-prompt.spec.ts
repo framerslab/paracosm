@@ -419,6 +419,8 @@ for (const width of [390, 1440]) {
         const paragraph = page.locator('#privacy p').filter({ hasText: 'opening a leader’s full prompt' });
         await paragraph.evaluate(el => el.scrollIntoView({ block: 'center' }));
         await expect(paragraph).toBeInViewport();
+        const bounds = (await paragraph.boundingBox())!;
+        expect(Math.abs(bounds.y + bounds.height / 2 - 422), 'the disclosure is centered in the capture').toBeLessThanOrEqual(1);
         await snap('privacy');
       } finally {
         await context.close();
