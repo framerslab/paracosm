@@ -107,7 +107,7 @@ function Decision({ name, nameAuthored, side, place, noun, metrics, firstStamp, 
         </div>}
         {check && <p className={styles.watchKind}>
           {check.bar < 57 ? 'Bold leader.' : check.bar > 57 ? 'Careful leader.' : 'Balanced leader.'}{' '}
-          {reportedBar}{fact && <AiWritten authored>{fact}</AiWritten>}
+          <span>{reportedBar}{fact && <AiWritten authored>{fact}</AiWritten>}</span>
         </p>}
         {check && firstBar && <p>{barHelp}</p>}
         {changes && <p>{changes}</p>}
