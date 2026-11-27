@@ -69,6 +69,23 @@ test('key link focuses the mounted field', async ({ page }) => {
   await openKeyLink(page, page.getByTestId('paste-at-limit').getByRole('link'));
 });
 
+test('a key field address is dropped on the Event Log and Settings stays open', async ({ page }) => {
+  const log = page.getByRole('tab', { name: 'Event Log', exact: true });
+  // Answer the consent bar first: its key would take the focus the address puts in the field.
+  await page.goto('/sim');
+  await answerConsent(page);
+  for (const [address, provider] of [['/sim?tab=settings#key-anthropic', 'anthropic'], ['/sim#key-openai', 'openai']] as const) {
+    await page.goto(address);
+    await expect(field(page, provider)).toBeFocused();
+    await log.click();
+    await expect(log).toHaveAttribute('aria-selected', 'true');
+    await expect(page).toHaveURL(/\/sim\?tab=settings&sub=log$/);
+    await page.reload();
+    await expect(log).toHaveAttribute('aria-selected', 'true');
+    await expect(field(page, provider)).toHaveCount(0);
+  }
+});
+
 test('saved key returns to Run', async ({ page }) => {
   await atLimit(page);
   await page.goto('/sim?scenario=lunar-outpost&size=2&tab=settings&focus=api-key');
@@ -100,6 +117,24 @@ test('saved key returns to Run', async ({ page }) => {
   });
   await page.goto(FIELD_URL);
   await field(page).fill('fixture-openai');
+  await field(page).evaluate((input: HTMLInputElement) => input.blur());
+  await expect(saved(page)).toHaveCount(0);
+  await expect(back(page)).toHaveCount(0);
+});
+
+test('a key the tab could not save over a saved one is not called saved', async ({ page }) => {
+  await page.goto(FIELD_URL);
+  await answerConsent(page);
+  await field(page).fill('fixture-openai');
+  await expect(saved(page)).toBeVisible();
+  await page.evaluate(slot => {
+    const setItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key, value) {
+      if (this === sessionStorage && key === slot) throw new DOMException('Storage blocked', 'SecurityError');
+      setItem.call(this, key, value);
+    };
+  }, SLOT);
+  await field(page).fill('fixture-openai-replaced');
   await field(page).evaluate((input: HTMLInputElement) => input.blur());
   await expect(saved(page)).toHaveCount(0);
   await expect(back(page)).toHaveCount(0);

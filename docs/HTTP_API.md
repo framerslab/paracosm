@@ -650,7 +650,7 @@ The dashboard at `/sim` also accepts a client-side query-param contract for shar
 | `?load=`   | yes      | URL of a remote `.json` save (http/https only, CORS-readable). A file on another site is fetched only after the visitor answers a question that names that site; Cancel fetches nothing. A file that a redirect serves from another origin than the link's is not loaded. |
 | `?tab=`    | no       | Tab to land on after the load resolves: `sim` (default), `viz`, `reports`, `chat`, `library`, `settings`, `studio`. |
 | `?autoload=` | no     | `1` or `true` skips the F9 preview-confirm modal. For a file on another site, the question naming the site is still asked first. |
-| `?focus=`  | no       | With `tab=settings`, `api-key` puts the keyboard focus in the OpenAI key field once when Settings opens. The older `#key-openai` address does the same. Moving to another tab or sub-tab drops it. |
+| `?focus=`  | no       | With `tab=settings`, `api-key` puts the keyboard focus in the OpenAI key field once when Settings opens, and `api-key-anthropic` in the Anthropic key field. The `#key-openai` and `#key-anthropic` addresses do the same. Moving to another tab or sub-tab drops it. |
 | `?replay=` | no       | Session ID from a server-stored run. Switches the SSE source to `/sessions/:id/replay` instead of fetching a remote file. Pairs with `?tab=` the same way. |
 
 A loaded run's provider error banner links only to the provider key and billing pages the server itself sends (`platform.openai.com`, `console.anthropic.com`); any other address in the file is shown as text.

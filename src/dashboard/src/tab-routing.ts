@@ -132,10 +132,15 @@ export function createToolLogHref(currentHref: string, toolName: string, actorNa
 export function setSubTabUrlParam(sub: string | null): void {
   if (typeof window === 'undefined') return;
   const url = new URL(window.location.href);
+  if (url.hash === '#key-openai' || url.hash === '#key-anthropic') {
+    // A key field address opens Settings even with no tab named: name it
+    // before the fragment goes, so a reload stays in Settings.
+    if (!url.searchParams.has('tab')) url.searchParams.set('tab', 'settings');
+    url.hash = '';
+  }
   if (sub) url.searchParams.set('sub', sub);
   else url.searchParams.delete('sub');
   url.searchParams.delete('focus');
-  if (url.hash === '#key-openai') url.hash = '';
   window.history.replaceState({}, '', url.toString());
 }
 
