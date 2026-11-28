@@ -345,8 +345,17 @@ jobs:
         if: ${{ !cancelled() }}
         run: npm run check:sitemap
 
+      # The landing page's header row and first screen at 390 and 1,440 px in
+      # both looks: the words, the keys, the saved run's replay from the
+      # build's digest, the floors, one-row navigation, the consent bar clear
+      # of the Run key and the landing page's count events.
+      - name: Landing page first screen end-to-end test
+        if: ${{ !cancelled() }}
+        timeout-minutes: 10
+        run: npx playwright test tests-e2e/specs/landing-first-screen.spec.ts --project=chromium-desktop
+
       # The hosted demo's consent bar on the landing page, the dashboard and
-      # the API docs the step above built, against a server of its own in
+      # the API docs the TypeDoc step built, against a server of its own in
       # hosted_demo mode with made-up analytics ids. It writes pictures of the
       # bar into test-results/consent-bar-captures.
       - name: Consent bar end-to-end test
