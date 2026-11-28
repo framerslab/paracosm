@@ -243,6 +243,8 @@ export function SimView({ state, playhead, pairTurns, stoppedPair, sseStatus, op
 
   const pairBody = (
     <Fragment key="pair">
+      {!showingStack && atEnd && !verdictPanel &&
+        <p className={styles.watchWaiting}>No verdict came back for this run.</p>}
       {showingStack ? <>
         <WatchGridPanels state={state} place={place} onSelectPlace={selectPlace} turn={turn} paused={paused} />
         <button type="button" className={styles.watchKey} onClick={() => {
@@ -256,10 +258,9 @@ export function SimView({ state, playhead, pairTurns, stoppedPair, sseStatus, op
           />)}
         </div>
         <div className={`${styles.turnRows} ${styles.watchHistory}`}><TurnGrid state={state} /></div>
-      </> : atEnd ? <>
-        {!verdictPanel && <p className={styles.watchWaiting}>No verdict came back for this run.</p>}
+      </> : atEnd && verdictPanel ?
         <WatchGridPanels state={state} place={place} onSelectPlace={selectPlace} turn={turn} paused={paused} />
-      </> : <PairTurn
+      : <PairTurn
         key={`${shownRun}:${turn}`}
         turn={turn} maxTurns={state.maxTurns} data={data} place={place}
         noun={scenario.labels.eventNounSingular ?? 'crisis'}
