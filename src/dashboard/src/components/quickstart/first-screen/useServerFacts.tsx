@@ -2,8 +2,8 @@
  * What the server answers that the Run tab's first screen reads: the day's
  * free runs (GET /rate-limit), whether this is the hosted demo and its caps
  * (GET /admin-config), and the saved runs (GET /sessions, through
- * useSessions). Each is asked once a page, with two more reads: the day's
- * count is read again once its reset time has come while none is left, and
+ * useSessions). The fork dialog refreshes /admin-config when it opens. The
+ * day's count is read again once its reset time has come while none is left, and
  * a read of /admin-config that failed is tried again, at 2 seconds and then
  * at longer gaps up to 15. A press of Start that the server
  * refuses at the day's limit is kept too, so the screen says the limit
@@ -61,6 +61,8 @@ export interface ServerFacts {
   /** `refresh` asks again and answers what the server said, so a press of Start reads the count it acts on. */
   rateLimit: RateLimitState & { refresh(): Promise<RateLimitState> };
   adminConfig: AdminConfigState;
+  /** Checks settings again before a fork can be submitted. */
+  refreshAdminConfig(): void;
   /** `refresh` asks again and settles once the answer is in. */
   sessions: { status: SessionsStatus; rows: SessionRow[]; refresh(): Promise<void> };
   /** True once a press of Start was refused at the day's limit (POST /setup answered 429 with none left). */
@@ -180,6 +182,11 @@ async function readRateLimit(): Promise<RateLimitState> {
 export function ServerFactsProvider({ children }: { children: ReactNode }) {
   const [rateLimit, setRateLimit] = useState<RateLimitState>({ status: 'loading' });
   const [adminConfig, setAdminConfig] = useState<AdminConfigState>({ status: 'loading' });
+  const [adminConfigRequest, setAdminConfigRequest] = useState(0);
+  const refreshAdminConfig = useCallback(() => {
+    setAdminConfig({ status: 'loading' });
+    setAdminConfigRequest(request => request + 1);
+  }, []);
   const [limitMet, setLimitMet] = useState(false);
   const sessions = useSessions();
   // The reset time of the day the kept refusal belongs to, when a count was read before it.
@@ -306,15 +313,16 @@ export function ServerFactsProvider({ children }: { children: ReactNode }) {
       cancelled = true;
       if (timer !== undefined) window.clearTimeout(timer);
     };
-  }, []);
+  }, [adminConfigRequest]);
 
   const value = useMemo<ServerFacts>(() => ({
     rateLimit: { ...rateLimit, refresh: refreshRateLimit },
     adminConfig,
+    refreshAdminConfig,
     sessions: { status: sessions.status, rows: sessions.sessions as SessionRow[], refresh: refreshSessions },
     limitMet,
     markLimitMet,
-  }), [rateLimit, refreshRateLimit, adminConfig, sessions.status, sessions.sessions, refreshSessions, limitMet, markLimitMet]);
+  }), [rateLimit, refreshRateLimit, adminConfig, refreshAdminConfig, sessions.status, sessions.sessions, refreshSessions, limitMet, markLimitMet]);
 
   return <ServerFactsContext.Provider value={value}>{children}</ServerFactsContext.Provider>;
 }

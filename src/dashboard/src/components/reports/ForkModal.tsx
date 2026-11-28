@@ -38,10 +38,12 @@ export interface ForkModalProps {
   parentArtifact: RunArtifact;
   /** Turn index selected by the user (from the ReportView button). */
   atTurn: number;
-  /** The last turn the fork plays (forkRunLimits: the parent's final turn, or the hosted demo's cap). */
-  maxTurns: number;
+  /** The last turn the fork plays, once the server's limits are known. */
+  maxTurns: number | undefined;
   /** Whether each turn keeps only its first custom event (a fork on the hosted demo's keys). */
   onePerTurn?: boolean;
+  /** Why the server's limits are unavailable. */
+  limitsMessage?: string;
   /** Current session cost preset (from Settings). */
   costPreset: 'quality' | 'economy';
   /** Current session provider (from Settings). */
@@ -56,7 +58,7 @@ export interface ForkModalProps {
 
 export function ForkModal(props: ForkModalProps) {
   const {
-    parentArtifact, atTurn, maxTurns, onePerTurn = false, costPreset, provider,
+    parentArtifact, atTurn, maxTurns, onePerTurn = false, limitsMessage, costPreset, provider,
     sessionCustomLeaders = [], onConfirm, onClose,
   } = props;
 
@@ -69,6 +71,7 @@ export function ForkModal(props: ForkModalProps) {
   const [seedText, setSeedText] = useState('');
   const [customEventsText, setCustomEventsText] = useState('');
   const eventFeedbackId = useId();
+  const limitsFeedbackId = useId();
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -78,17 +81,23 @@ export function ForkModal(props: ForkModalProps) {
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  const costEstimate = estimateForkCost(atTurn, maxTurns, costPreset, provider);
   const firstPlayableTurn = atTurn + 1;
-  const turnsRemaining = Math.max(0, maxTurns - atTurn);
+  const turnsRemaining = maxTurns === undefined ? 0 : Math.max(0, maxTurns - atTurn);
+  const turnProblem = maxTurns !== undefined && turnsRemaining === 0
+    ? `No turns remain after ${labels.Time} ${atTurn}.`
+    : limitsMessage;
   const parentSeed = parentArtifact.metadata.seed;
-  const eventLines = inspectCustomEventLines(customEventsText, atTurn, maxTurns, { onePerTurn });
+  const eventLines = maxTurns === undefined ? [] : inspectCustomEventLines(customEventsText, atTurn, maxTurns, { onePerTurn });
   const eventProblems = eventLines.filter(line => line.status !== 'used');
   const hasEventProblems = eventProblems.length > 0;
+  const forkDescription = [
+    ...(turnProblem ? [limitsFeedbackId] : []),
+    ...(hasEventProblems ? [eventFeedbackId] : []),
+  ].join(' ') || undefined;
 
   const handleConfirm = () => {
     const leader = presets[actorIndex];
-    if (!leader || hasEventProblems) return;
+    if (!leader || turnsRemaining === 0 || hasEventProblems) return;
     const parsedSeed = seedText.trim() ? parseInt(seedText, 10) : undefined;
     const seedOverride = parsedSeed !== undefined && Number.isFinite(parsedSeed)
       ? parsedSeed
@@ -203,12 +212,16 @@ export function ForkModal(props: ForkModalProps) {
           </div>
         </details>
 
-        <div className={styles.costEstimate} role="status">
-          <span>Estimated cost</span>
-          <strong>{costEstimate}</strong>
-          <span className={styles.costDetail}>
-            for {turnsRemaining} more {turnsRemaining === 1 ? labels.time : labels.times}
-          </span>
+        <div id={limitsFeedbackId} className={styles.costEstimate} role="status">
+          {turnProblem ? <span>{turnProblem}</span> : maxTurns !== undefined && (
+            <>
+              <span>Estimated cost</span>
+              <strong>{estimateForkCost(atTurn, maxTurns, costPreset, provider)}</strong>
+              <span className={styles.costDetail}>
+                for {turnsRemaining} more {turnsRemaining === 1 ? labels.time : labels.times}
+              </span>
+            </>
+          )}
         </div>
 
         <footer className={styles.footer}>
@@ -218,8 +231,8 @@ export function ForkModal(props: ForkModalProps) {
           <button
             type="button"
             onClick={handleConfirm}
-            disabled={presets.length === 0 || hasEventProblems}
-            aria-describedby={hasEventProblems ? eventFeedbackId : undefined}
+            disabled={presets.length === 0 || turnsRemaining === 0 || hasEventProblems}
+            aria-describedby={forkDescription}
             className={styles.confirmButton}
           >
             Fork
