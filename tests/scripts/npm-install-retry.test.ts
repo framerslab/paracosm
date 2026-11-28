@@ -1,6 +1,9 @@
-import test from 'node:test';
+import test, { type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import type { SpawnSyncReturns } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { delimiter, join } from 'node:path';
 
 import { isUnservedTarball, npmWithRetry } from '../../scripts/npm-install-retry.mjs';
 
@@ -52,12 +55,13 @@ function scripted(answers: SpawnSyncReturns<string>[], tries?: number) {
 test('an unserved tarball, the 404 of a version published moments ago, is the one failure run again', () => {
   assert.equal(isUnservedTarball(UNSERVED), true);
   assert.equal(isUnservedTarball(UNSERVED.replaceAll('npm error', 'npm ERR!')), true);
-  assert.equal(
-    isUnservedTarball('npm error 404 Not Found - GET https://registry.npmjs.org/@framers/agentos/-/agentos-0.21.2.tgz - Not found'),
-    true,
-  );
+  const scoped = 'npm error code E404\nnpm error 404 Not Found - GET https://registry.npmjs.org/@framers/agentos/-/agentos-0.21.2.tgz - Not found';
+  assert.equal(isUnservedTarball(scoped), true);
+  assert.equal(isUnservedTarball(scoped.replace('@framers/', '@framers%2f')), true);
+  assert.equal(isUnservedTarball(scoped.replace('registry.npmjs.org', 'npm.example.com')), false);
   assert.equal(isUnservedTarball(UNLISTED), false);
   assert.equal(isUnservedTarball('npm error code E401\nnpm error 401 Unauthorized - GET https://registry.npmjs.org/resend'), false);
+  assert.equal(isUnservedTarball('npm error code E403\nnpm error 403 Forbidden - GET https://registry.npmjs.org/resend/-/resend-6.41.0.tgz'), false);
   assert.equal(isUnservedTarball(''), false);
   assert.equal(isUnservedTarball(undefined), false);
 });
@@ -95,4 +99,77 @@ test('npm that cannot start is thrown as its own error', () => {
   const missing = Object.assign(new Error('spawnSync npm ENOENT'), { code: 'ENOENT' });
   const { run } = scripted([{ ...answer(0), status: null, error: missing }]);
   assert.throws(run, /spawnSync npm ENOENT/);
+});
+
+/** Put a controlled npm executable on PATH for a test of the real child-process path. */
+function npmFixture(t: TestContext, source: string) {
+  const cwd = mkdtempSync(join(tmpdir(), 'paracosm-npm-retry-'));
+  const path = process.env.PATH;
+  t.after(() => {
+    if (path === undefined) delete process.env.PATH;
+    else process.env.PATH = path;
+    rmSync(cwd, { force: true, recursive: true });
+  });
+  writeFileSync(join(cwd, 'npm'), `#!/usr/bin/env node\n${source}\n`, { mode: 0o755 });
+  process.env.PATH = [cwd, path].filter(Boolean).join(delimiter);
+  return cwd;
+}
+
+test('a lifecycle command failure that prints a tarball 404 is thrown without retrying', async (t) => {
+  const lifecycle = [
+    'npm error code 1',
+    'npm error path /tmp/paracosm-package-smoke/node_modules/fixture',
+    'npm error command failed',
+    'npm error command sh -c node postinstall.cjs',
+    UNSERVED.split('\n')[1],
+  ].join('\n');
+  const cwd = npmFixture(t, `process.stderr.write(${JSON.stringify(lifecycle)}); process.exitCode = 1;`);
+  const waits: number[] = [];
+  await assert.rejects(async () => npmWithRetry(['ci', '--no-audit', '--no-fund'], {
+    cwd,
+    sleep: (ms) => { waits.push(ms); },
+    log: () => {},
+    writeStderr: () => {},
+  }), /Command failed: npm ci --no-audit --no-fund/);
+  assert.deepEqual(waits, []);
+});
+
+test('npm stderr reaches the caller while the child is still running', async (t) => {
+  const warning = 'npm warn lifecycle waiting for acknowledgment\n';
+  const cwd = npmFixture(t, `
+    const fs = require('node:fs');
+    process.stderr.write(${JSON.stringify(warning)});
+    const interval = setInterval(() => {
+      if (!fs.existsSync('ack')) return;
+      clearInterval(interval);
+      clearTimeout(deadline);
+    }, 10);
+    const deadline = setTimeout(() => {
+      clearInterval(interval);
+      process.exitCode = 88;
+    }, 2000);
+  `);
+  let stderr = '';
+  assert.equal(await npmWithRetry(['install'], {
+    cwd,
+    writeStderr: (text) => {
+      stderr += text;
+      if (stderr === warning) writeFileSync(join(cwd, 'ack'), '');
+    },
+  }), 1);
+  assert.equal(stderr, warning);
+});
+
+test('npm killed by a signal after printing a tarball 404 is reported without retrying', async (t) => {
+  const cwd = npmFixture(t, `
+    process.stderr.write(${JSON.stringify(UNSERVED)}, () => process.kill(process.pid, 'SIGTERM'));
+  `);
+  const waits: number[] = [];
+  await assert.rejects(async () => npmWithRetry(['install'], {
+    cwd,
+    sleep: (ms) => { waits.push(ms); },
+    log: () => {},
+    writeStderr: () => {},
+  }), /Command failed: npm install \(signal SIGTERM\)/);
+  assert.deepEqual(waits, []);
 });
