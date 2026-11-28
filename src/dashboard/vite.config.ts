@@ -1,6 +1,8 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
+import { buildLandingReplay, type SavedRun } from './src/landing/replayDigest';
+import pinnedRun from './src/landing/pinned-run.json';
 
 /**
  * Writes site-analytics.json beside the build: the hosted demo's Google
@@ -22,8 +24,24 @@ const siteAnalyticsIds = {
   },
 };
 
+/**
+ * Writes landing-replay.json beside the build: the digest of the saved pair
+ * run the landing page replays on its first screen, built from the pinned
+ * run in src/landing/pinned-run.json. The server sends it at
+ * GET /landing-replay.json. A pinned run that is not a pair of 6 to 8 turns
+ * fails the build here and names the run.
+ */
+const landingReplay = {
+  name: 'paracosm-landing-replay',
+  apply: 'build' as const,
+  generateBundle(this: { emitFile(file: { type: 'asset'; fileName: string; source: string }): string }) {
+    const digest = buildLandingReplay(pinnedRun as SavedRun);
+    this.emitFile({ type: 'asset', fileName: 'landing-replay.json', source: `${JSON.stringify(digest)}\n` });
+  },
+};
+
 export default defineConfig({
-  plugins: [react(), tailwindcss(), siteAnalyticsIds],
+  plugins: [react(), tailwindcss(), siteAnalyticsIds, landingReplay],
   server: {
     port: 5173,
     proxy: {

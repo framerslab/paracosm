@@ -22,10 +22,9 @@
   // Apply saved theme BEFORE first paint to kill the dark-then-light
   // (or light-then-dark) flash. Must be a synchronous inline script in
   // the <head>; defer / module / external would all paint the dark
-  // default first. Mirrors the applyTheme() logic at the bottom of
-  // the page; that script still runs and rebinds the toggle button
-  // but the html.light class is already correct by the time anything
-  // renders.
+  // default first. The look switch in assets/landing-replay.js reads
+  // and writes the same key; the html.light class is already correct
+  // by the time anything renders.
   (function () {
     try {
       var t = localStorage.getItem('paracosm-theme') || 'dark';
@@ -94,6 +93,7 @@
 {"@context":"https://schema.org","@type":"WebSite","@id":"https://paracosm.agentos.sh/#website","name":"Paracosm","alternateName":"Paracosm by AgentOS","url":"https://paracosm.agentos.sh","description":"Agent swarm simulation for structured world modeling with LLMs.","publisher":{"@id":"https://paracosm.agentos.sh/#publisher"},"inLanguage":"en-US","potentialAction":{"@type":"SearchAction","target":"https://paracosm.agentos.sh/sim?q={search_term_string}","query-input":"required name=search_term_string"}}
 </script>
 <link rel="stylesheet" href="/brand/landing.css?v=__PARACOSM_VERSION__">
+<script defer src="/brand/landing-replay.js?v=__PARACOSM_VERSION__"></script>
 </head>
 <body>
 
@@ -150,115 +150,82 @@
   </defs>
 </svg>
 
-<!-- NAV -->
-<nav class="nav" role="navigation" aria-label="Main">
-  <div class="nav-l">
-    <svg id="nav-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="24" height="24" style="display:block;flex-shrink:0" role="img" aria-label="Paracosm"><g class="pc-orbit"><line x1="32" y1="32" x2="37.63" y2="10.98" stroke="var(--pc-line)" stroke-width="1.6" opacity=".5"/><line x1="32" y1="32" x2="53.02" y2="26.37" stroke="var(--pc-line)" stroke-width="1.6" opacity=".5"/><line x1="32" y1="32" x2="47.39" y2="47.39" stroke="var(--pc-line)" stroke-width="1.6" opacity=".5"/><line x1="32" y1="32" x2="26.37" y2="53.02" stroke="var(--pc-line)" stroke-width="1.6" opacity=".5"/><line x1="32" y1="32" x2="10.98" y2="37.63" stroke="var(--pc-line)" stroke-width="1.6" opacity=".5"/><line x1="32" y1="32" x2="16.61" y2="16.61" stroke="var(--pc-line)" stroke-width="1.6" opacity=".5"/></g><g class="pc-cross"><line x1="37.63" y1="10.98" x2="47.39" y2="47.39" stroke="var(--pc-line)" stroke-width="1.1" opacity=".18"/><line x1="53.02" y1="26.37" x2="26.37" y2="53.02" stroke="var(--pc-line)" stroke-width="1.1" opacity=".18"/><line x1="47.39" y1="47.39" x2="10.98" y2="37.63" stroke="var(--pc-line)" stroke-width="1.1" opacity=".18"/><line x1="26.37" y1="53.02" x2="16.61" y2="16.61" stroke="var(--pc-line)" stroke-width="1.1" opacity=".18"/><line x1="10.98" y1="37.63" x2="37.63" y2="10.98" stroke="var(--pc-line)" stroke-width="1.1" opacity=".18"/><line x1="16.61" y1="16.61" x2="53.02" y2="26.37" stroke="var(--pc-line)" stroke-width="1.1" opacity=".18"/></g><circle cx="32" cy="32" r="9.2" fill="var(--amber)" opacity=".08"/><circle class="pc-hub" cx="32" cy="32" r="5.12" fill="var(--amber)"/><g class="pc-orbit"><circle cx="37.63" cy="10.98" r="3.52" fill="var(--rust)"/><circle cx="53.02" cy="26.37" r="3.52" fill="var(--amber)"/><circle cx="47.39" cy="47.39" r="3.52" fill="var(--teal)"/><circle cx="26.37" cy="53.02" r="3.52" fill="var(--rust)"/><circle cx="10.98" cy="37.63" r="3.52" fill="var(--teal)"/><circle cx="16.61" cy="16.61" r="3.52" fill="var(--amber)"/></g></svg>
-    <a href="/" class="nav-brand">PARA<span class="nav-brand-accent">COSM</span></a>
-    <a href="https://agentos.sh" target="_blank" rel="noopener" class="nav-tag" style="text-decoration:none">AGENTOS</a>
+<!-- The header row: one row from 320 px, the mark, Demo and the look switch, with Docs and GitHub from 600 px. -->
+<a class="lp-skip" href="#lp-title">Skip to the page</a>
+<header class="lp-bar">
+  <div class="lp-bar-row">
+    <a class="lp-mark" href="/" aria-label="Paracosm, home">
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="28" height="28" aria-hidden="true" focusable="false"><g class="pc-orbit"><line x1="32" y1="32" x2="37.63" y2="10.98" stroke="var(--pc-line)" stroke-width="1.6" opacity=".5"/><line x1="32" y1="32" x2="53.02" y2="26.37" stroke="var(--pc-line)" stroke-width="1.6" opacity=".5"/><line x1="32" y1="32" x2="47.39" y2="47.39" stroke="var(--pc-line)" stroke-width="1.6" opacity=".5"/><line x1="32" y1="32" x2="26.37" y2="53.02" stroke="var(--pc-line)" stroke-width="1.6" opacity=".5"/><line x1="32" y1="32" x2="10.98" y2="37.63" stroke="var(--pc-line)" stroke-width="1.6" opacity=".5"/><line x1="32" y1="32" x2="16.61" y2="16.61" stroke="var(--pc-line)" stroke-width="1.6" opacity=".5"/></g><g class="pc-cross"><line x1="37.63" y1="10.98" x2="47.39" y2="47.39" stroke="var(--pc-line)" stroke-width="1.1" opacity=".18"/><line x1="53.02" y1="26.37" x2="26.37" y2="53.02" stroke="var(--pc-line)" stroke-width="1.1" opacity=".18"/><line x1="47.39" y1="47.39" x2="10.98" y2="37.63" stroke="var(--pc-line)" stroke-width="1.1" opacity=".18"/><line x1="26.37" y1="53.02" x2="16.61" y2="16.61" stroke="var(--pc-line)" stroke-width="1.1" opacity=".18"/><line x1="10.98" y1="37.63" x2="37.63" y2="10.98" stroke="var(--pc-line)" stroke-width="1.1" opacity=".18"/><line x1="16.61" y1="16.61" x2="53.02" y2="26.37" stroke="var(--pc-line)" stroke-width="1.1" opacity=".18"/></g><circle cx="32" cy="32" r="9.2" fill="var(--amber)" opacity=".08"/><circle class="pc-hub" cx="32" cy="32" r="5.12" fill="var(--amber)"/><g class="pc-orbit"><circle cx="37.63" cy="10.98" r="3.52" fill="var(--rust)"/><circle cx="53.02" cy="26.37" r="3.52" fill="var(--amber)"/><circle cx="47.39" cy="47.39" r="3.52" fill="var(--teal)"/><circle cx="26.37" cy="53.02" r="3.52" fill="var(--rust)"/><circle cx="10.98" cy="37.63" r="3.52" fill="var(--teal)"/><circle cx="16.61" cy="16.61" r="3.52" fill="var(--amber)"/></g></svg>
+      <span class="lp-wordmark" translate="no" aria-hidden="true">PARA<span class="lp-cosm">COSM</span></span>
+    </a>
+    <nav class="lp-nav" aria-label="Main">
+      <a href="/sim" data-lp-demo="header">Demo</a>
+      <a href="/docs" class="lp-wide">Docs</a>
+      <a href="https://github.com/framerslab/paracosm" class="lp-wide">GitHub</a>
+      <button class="lp-look" id="theme-toggle" type="button" aria-label="Switch to the light look"></button>
+    </nav>
   </div>
-  <div class="nav-r">
-    <div class="nav-dropdown">
-      <button class="nav-dropdown-trigger" aria-haspopup="true" aria-expanded="false" type="button">Sections <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M1 3l4 4 4-4" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-      <div class="nav-dropdown-menu" role="menu">
-        <a href="#positioning" role="menuitem">Overview</a>
-        <a href="#features" role="menuitem">Features</a>
-        <a href="#how-it-works" role="menuitem">How It Works</a>
-        <a href="#scenarios" role="menuitem">Scenarios</a>
-        <a href="#get-started" role="menuitem">Get Started</a>
-        <a href="#faq" role="menuitem">FAQ</a>
-        <a href="#about" role="menuitem">About</a>
-      </div>
-    </div>
-    <a href="#cookbook">Cookbook</a>
-    <a href="https://agentos.sh/blog" target="_blank" rel="noopener">Blog</a>
-    <a href="https://agentos.sh/en/contact/" target="_blank" rel="noopener">Contact</a>
-    <div class="nav-dropdown">
-      <button class="nav-dropdown-trigger" aria-haspopup="true" aria-expanded="false" type="button">Docs <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M1 3l4 4 4-4" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-      <div class="nav-dropdown-menu" role="menu">
-        <a href="/docs" role="menuitem">API Reference</a>
-        <a href="https://github.com/framerslab/paracosm/blob/master/docs/HTTP_API.md" target="_blank" rel="noopener" role="menuitem">HTTP API Reference</a>
-        <a href="https://github.com/framerslab/paracosm/blob/master/docs/COOKBOOK.md" target="_blank" rel="noopener" role="menuitem">Cookbook (markdown)</a>
-        <a href="https://github.com/framerslab/paracosm/blob/master/docs/positioning/world-model-mapping.md" target="_blank" rel="noopener" role="menuitem">Positioning Map</a>
-      </div>
-    </div>
-    <a href="https://github.com/framerslab/paracosm" target="_blank" rel="noopener" aria-label="GitHub" title="GitHub" class="nav-icon"><svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg></a>
-    <a href="https://www.npmjs.com/package/paracosm" target="_blank" rel="noopener" aria-label="npm" title="npm" class="nav-icon nav-icon-npm">npm</a>
-    <a href="/sim" class="cta">Launch Sim <svg><use href="#i-arrow"/></svg></a>
-    <button class="theme-toggle" id="theme-toggle" aria-label="Toggle light/dark mode"></button>
-  </div>
-  <button class="nav-hamburger" id="nav-hamburger" aria-label="Toggle navigation menu" aria-expanded="false">
-    <span></span><span></span><span></span>
-  </button>
-</nav>
-<div class="nav-mobile" id="nav-mobile">
-  <details class="nav-mobile-group">
-    <summary><span>Sections</span></summary>
-    <div class="nav-mobile-group-body">
-      <a href="#positioning">Overview</a>
-      <a href="#features">Features</a>
-      <a href="#how-it-works">How It Works</a>
-      <a href="#scenarios">Scenarios</a>
-      <a href="#get-started">Get Started</a>
-      <a href="#faq">FAQ</a>
-      <a href="#about">About</a>
-    </div>
-  </details>
-  <a href="#cookbook" class="nav-mobile-link">Cookbook</a>
-  <a href="https://agentos.sh/blog" target="_blank" rel="noopener" class="nav-mobile-link">Blog</a>
-  <a href="https://agentos.sh/en/contact/" target="_blank" rel="noopener" class="nav-mobile-link">Contact</a>
-  <details class="nav-mobile-group">
-    <summary><span>Docs</span></summary>
-    <div class="nav-mobile-group-body">
-      <a href="/docs">API Reference</a>
-      <a href="https://github.com/framerslab/paracosm/blob/master/docs/HTTP_API.md" target="_blank" rel="noopener">HTTP API Reference</a>
-      <a href="https://github.com/framerslab/paracosm/blob/master/docs/COOKBOOK.md" target="_blank" rel="noopener">Cookbook (markdown)</a>
-      <a href="https://github.com/framerslab/paracosm/blob/master/docs/positioning/world-model-mapping.md" target="_blank" rel="noopener">Positioning Map</a>
-    </div>
-  </details>
-  <a href="https://github.com/framerslab/paracosm" target="_blank" rel="noopener" class="nav-mobile-link">GitHub</a>
-  <a href="https://www.npmjs.com/package/paracosm" target="_blank" rel="noopener" class="nav-mobile-link">npm</a>
-  <a href="/sim" class="cta">Launch Sim <svg width="16" height="16"><use href="#i-arrow"/></svg></a>
-</div>
+  <p class="lp-look-note" role="status" aria-live="polite"></p>
+</header>
+
 
 <main id="main-content">
 
-<!-- HERO -->
-<section class="hero" id="top">
-  <svg id="hero-icon" class="hero-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="96" height="96" style="display:block" role="img" aria-label="Paracosm"><defs><radialGradient id="hg"><stop offset="0%" stop-color="var(--amber)" stop-opacity=".3"/><stop offset="100%" stop-color="var(--amber)" stop-opacity="0"/></radialGradient></defs><g class="pc-orbit"><line x1="256" y1="256" x2="301.06" y2="87.85" stroke="var(--pc-line)" stroke-width="12.8" opacity=".5"/><line x1="256" y1="256" x2="424.15" y2="210.94" stroke="var(--pc-line)" stroke-width="12.8" opacity=".5"/><line x1="256" y1="256" x2="379.09" y2="379.09" stroke="var(--pc-line)" stroke-width="12.8" opacity=".5"/><line x1="256" y1="256" x2="210.94" y2="424.15" stroke="var(--pc-line)" stroke-width="12.8" opacity=".5"/><line x1="256" y1="256" x2="87.85" y2="301.06" stroke="var(--pc-line)" stroke-width="12.8" opacity=".5"/><line x1="256" y1="256" x2="132.91" y2="132.91" stroke="var(--pc-line)" stroke-width="12.8" opacity=".5"/></g><g class="pc-cross"><line x1="301.06" y1="87.85" x2="379.09" y2="379.09" stroke="var(--pc-line)" stroke-width="9" opacity=".18"/><line x1="424.15" y1="210.94" x2="210.94" y2="424.15" stroke="var(--pc-line)" stroke-width="9" opacity=".18"/><line x1="379.09" y1="379.09" x2="87.85" y2="301.06" stroke="var(--pc-line)" stroke-width="9" opacity=".18"/><line x1="210.94" y1="424.15" x2="132.91" y2="132.91" stroke="var(--pc-line)" stroke-width="9" opacity=".18"/><line x1="87.85" y1="301.06" x2="301.06" y2="87.85" stroke="var(--pc-line)" stroke-width="9" opacity=".18"/><line x1="132.91" y1="132.91" x2="424.15" y2="210.94" stroke="var(--pc-line)" stroke-width="9" opacity=".18"/></g><circle class="pc-hub-glow" cx="256" cy="256" r="73.7" fill="url(#hg)"/><circle class="pc-hub" cx="256" cy="256" r="40.96" fill="var(--amber)"/><g class="pc-orbit"><circle cx="301.06" cy="87.85" r="28.16" fill="var(--rust)"/><circle cx="424.15" cy="210.94" r="28.16" fill="var(--amber)"/><circle cx="379.09" cy="379.09" r="28.16" fill="var(--teal)"/><circle cx="210.94" cy="424.15" r="28.16" fill="var(--rust)"/><circle cx="87.85" cy="301.06" r="28.16" fill="var(--teal)"/><circle cx="132.91" cy="132.91" r="28.16" fill="var(--amber)"/></g></svg>
-
-  <h1>PARACOSM</h1>
-  <p class="hero-tagline-line">Run any what-if. See how it actually plays out.</p>
-  <p class="hero-positioning" style="max-width:780px;margin:14px auto 0;color:var(--t2);font-size: var(--font-lg);line-height:1.65">
-    Type a scenario in plain English. Paracosm runs it as timelines side by side, all from the same start. An AI event director writes each timeline’s unscripted crises from what has happened in it so far. Change one thing between them, such as a leader’s personality or an event at a past turn, and see where each one ends up.
-  </p>
-  <p class="hero-mono" style="margin-top:18px">OPEN SOURCE &middot; APACHE-2.0 &middot; TYPESCRIPT &middot; BUILT ON AGENTOS</p>
-
-  <!-- Trust signals: live counts pulled from npm + GitHub at page load.
-       The static hex copy is the SSR fallback so crawlers see real numbers
-       even before JS runs; the script below replaces them with the
-       actual current counts so the badges stay fresh without rebuilding. -->
-  <div class="hero-trust" aria-label="Project trust signals">
-    <a class="hero-trust-pill" href="https://www.npmjs.com/package/paracosm" target="_blank" rel="noopener" aria-label="npm package">
-      <span class="hero-trust-label">npm</span>
-      <span class="hero-trust-value" data-trust="npm-version">v0.9</span>
-    </a>
-    <a class="hero-trust-pill" href="https://github.com/framerslab/paracosm/stargazers" target="_blank" rel="noopener" aria-label="GitHub stars">
-      <span class="hero-trust-label">★ stars</span>
-      <span class="hero-trust-value" data-trust="gh-stars">—</span>
-    </a>
-    <a class="hero-trust-pill" href="https://github.com/framerslab/paracosm/network/members" target="_blank" rel="noopener" aria-label="GitHub forks">
-      <span class="hero-trust-label"><svg class="hero-trust-glyph" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false"><use href="#i-fork"/></svg> forks</span>
-      <span class="hero-trust-value" data-trust="gh-forks">—</span>
-    </a>
+<!-- The first screen: the name, the claim, the lead, the Run key, the install line,
+     the trust line and the replay of one saved pair run, drawn from the digest the
+     dashboard's build writes (GET /landing-replay.json) by assets/landing-replay.js. -->
+<section class="lp-first" id="top" aria-labelledby="lp-title">
+  <div class="lp-col">
+    <div class="lp-words-a">
+      <h1 id="lp-title" class="lp-h1" tabindex="-1" translate="no" data-text="heading">PARA<span class="lp-cosm">COSM</span></h1>
+      <p class="lp-claim" data-text="heading">Run any what-if. See how it actually plays out.</p>
+    </div>
+    <p class="hero-positioning lp-lead" data-text="body">Type a scenario in plain English. Paracosm runs it as timelines side by side, all from the same start. An AI event director writes each timeline’s unscripted crises from what has happened in it so far. Change one thing between them, such as a leader’s personality or an event at a past turn, and see where each one ends up.</p>
+    <a class="lp-key" href="/sim" data-lp-demo="hero" aria-label="Run a what-if in the demo: __LANDING_KEY_SPOKEN__"><span class="lp-key-label">Run a what-if</span><span class="lp-key-line">__LANDING_KEY_LINE__</span></a>
+    <div class="lp-install">
+      <div class="lp-install-field">
+        <code class="lp-install-line" tabindex="0" role="region" aria-label="Install command" translate="no">npm install paracosm</code>
+        <button type="button" class="lp-copy" aria-label="Copy the install command" hidden>Copy</button>
+      </div>
+      <p class="lp-copy-status" role="status"></p>
+    </div>
+    <ul class="lp-trust">
+      <li>Open-source simulation engine in TypeScript</li>
+      <li>Apache-2.0</li>
+      <li>Built on <a href="https://agentos.sh">AgentOS</a></li>
+      <li><a href="https://www.npmjs.com/package/paracosm" aria-label="Paracosm on npm" translate="no">v__PARACOSM_VERSION__ on npm</a></li>
+    </ul>
+    <section id="lp-replay" class="lp-replay" aria-label="A saved run of Mars Genesis, replayed" data-state="loading">
+      <div class="lp-replay-head">
+        <div class="lp-replay-id">
+          <p class="lp-replay-title">A saved run</p>
+          <p class="lp-replay-figures" translate="no"></p>
+        </div>
+        <p class="lp-status" aria-hidden="true"><span class="lp-dot"></span><span class="lp-status-word">REPLAY</span><span class="lp-status-figures"></span></p>
+      </div>
+      <p class="lp-replay-note">A replay of a finished run. No model is called.</p>
+      <div class="lp-stage"></div>
+      <p class="lp-verdict" hidden></p>
+      <div class="lp-controls" hidden>
+        <button type="button" class="lp-play">Play</button>
+        <div class="lp-line">
+          <input class="lp-range" type="range" min="0" max="1" step="1" value="0" aria-label="Turns">
+          <ol class="lp-ticks" aria-hidden="true"></ol>
+        </div>
+        <div class="lp-steps">
+          <button type="button" class="lp-prev" aria-label="Previous turn"><svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true" focusable="false"><path d="M10 3L5 8l5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          <button type="button" class="lp-next" aria-label="Next turn"><svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true" focusable="false"><path d="M6 3l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        </div>
+      </div>
+      <p class="lp-sr" aria-live="polite"></p>
+      <div class="lp-replay-problem" hidden></div>
+      <noscript><p class="lp-replay-note">The replay plays with scripts on. Open this run in the demo to watch it there.</p></noscript>
+    </section>
+    <p class="lp-open-row"><a class="lp-open" href="__LANDING_RUN_HREF__" data-lp-demo="replay">Open this run in the demo</a></p>
   </div>
+</section>
 
-  <div class="hero-ctas">
-    <a href="/sim" class="cta cta-pulse">Try Live Demo <svg><use href="#i-arrow"/></svg></a>
-    <a href="#get-started" class="cta cta-secondary">Install from npm</a>
-    <a href="https://github.com/framerslab/paracosm" target="_blank" rel="noopener" class="btn-ghost">★ Star Paracosm</a>
-  </div>
-
+<section class="hero hero-rest">
   <div class="hero-prompts" style="margin:28px auto 0;max-width:880px">
     <div style="font-family:var(--mono);font-size: var(--font-xs);letter-spacing:1.5px;text-transform:uppercase;color:var(--t3);margin-bottom:10px;text-align:center">Try a scenario · click to open in Quickstart</div>
     <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center">
@@ -269,21 +236,6 @@
       <a href="/sim?tab=quickstart&amp;prompt=A%20mid-size%20city%20of%20650%2C000%20pilots%20downtown%20congestion%20pricing%20for%2012%20months.%20%249%20peak%20%2F%20%243%20off-peak%20on%20vehicles%20entering%20the%20central%20business%20district%206am-7pm%20Mon-Fri.%20Revenue%20funds%20two%20BRT%20lines%20and%20a%2030%25%20transit%20fare%20cut%20for%20low-income%20riders.%20Test%20VMT%2C%20transit%20ridership%2C%20small-business%20revenue%2C%20equity%20outcomes." class="hero-prompt-chip">What if a city pilots congestion pricing for 12 months?</a>
     </div>
   </div>
-
-  <!-- width/height attributes give the browser a 16:9 aspect-ratio anchor
-       so it reserves layout space before the video element loads. Without
-       these, the video controls panel pops in mid-render and shifts the
-       page below it by 539px (PSI 2026-05-04: CLS 0.133 desktop, single
-       culprit was <div pseudo="-webkit-media-controls-panel">). -->
-  <video class="hero-video" width="960" height="540" autoplay muted loop playsinline controls preload="metadata"
-    poster="/demo/e2e-atlas-8-poster.jpg?v=e2e-40"
-    aria-label="Paracosm end-to-end: a coastal mayor's hurricane-evacuation prompt typed on screen, a 12x sped-up compile with live per-stage log + three parallel HEXACO actor sims, then a tour of the SIM Constellation layout, VIZ ecology + divergence, full Reports breakdown, Library bundle compare with pinned diffs, and a run drawer."
-    style="display:block;width:min(960px,calc(100% - 48px));max-width:960px;aspect-ratio:16/9;height:auto;margin:36px auto 0;border-radius:12px;border:1px solid var(--border);box-shadow:0 24px 60px rgba(0,0,0,0.4);background:var(--bg-card)">
-    <source src="/demo/e2e-atlas-8-hero.mp4?v=e2e-40" type="video/mp4">
-    <!-- The npm package leaves the demo videos out, so a page served from an installed
-         package falls back to the hosted copy when the local file answers 404. -->
-    <source src="https://paracosm.agentos.sh/demo/e2e-atlas-8-hero.mp4?v=e2e-40" type="video/mp4">
-  </video>
 
   <p class="hero-sub" style="max-width:740px;margin:24px auto 0">Same world, three actors — see how each one's traits drive identical state to different futures. Seven entry points, one engine: brief, JSON contract, granular client, fork-and-replay counterfactuals, pluggable trait models, HTTP, CLI. Every path returns the same Zod-validated RunArtifact.</p>
 
@@ -1132,7 +1084,7 @@ npm run dashboard     <span class="cm"># opens http://localhost:3456</span>
 <section class="sec sec-alt" id="privacy">
   <div class="sec-inner">
     <h2 class="sec-title rv" data-text="heading">Privacy</h2>
-    <div class="privacy-updated rv">Updated <time datetime="2026-11-27">27 November 2026</time></div>
+    <div class="privacy-updated rv">Updated <time datetime="2026-11-28">28 November 2026</time></div>
     <p class="rv" data-text="body">This page, the dashboard at <a href="/sim">/sim</a> and the API docs use up to three tools to understand which pages people visit and where they get stuck. The count runs before you answer. A bar at the bottom of the page offers Reject all, Choose and Accept all. Analytics choices, in the footer of every page, opens the same choices again, and this browser keeps your answer for each purpose.</p>
     <ul class="rv" data-text="body">
       <li><strong>Count visits: Plausible Analytics</strong>, on until you turn it off. It runs on our own server and uses no cookies. Page views and dashboard events reach it through this site's server, which sends the page as one of this site's pages (the landing page, the dashboard or an API docs page, with no query or other address details) and no referrer. It also sends the full User-Agent your browser sends and one IP address, yours. Plausible uses them for a daily visitor identifier, a hash of them and this site's domain under a salt it deletes every 24 hours, and works out your browser, operating system, device type and an approximate location (country, region and city) from them. It stores neither, as its <a href="https://plausible.io/data-policy" target="_blank" rel="noopener">data policy</a> says. To limit repeated counts, this site's server holds your IP address in memory for one minute from your first count (an IPv6 address by its first 64 bits), then deletes it; it never writes it to disk. Reject all or its switch stops it, and this browser sends no more counts.</li>
@@ -1140,6 +1092,7 @@ npm run dashboard     <span class="cm"># opens http://localhost:3456</span>
       <li><strong>Record sessions: Microsoft Clarity</strong>, off until you turn it on. Microsoft and we are each an independent controller of what Clarity collects, under <a href="https://clarity.microsoft.com/terms" target="_blank" rel="noopener">Clarity's terms</a>. It records clicks, scrolling and mouse movement as session replays and heatmaps. It masks the text and images on the page before anything leaves your browser, apart from the page title. Its cookies, <code>_clck</code> and <code>_clsk</code> plus Microsoft's own, recognize a returning browser and connect the pages of one visit. Turning it off removes <code>_clck</code> and <code>_clsk</code> from this site in your browser.</li>
     </ul>
     <p class="rv" data-text="body">Viewing the Run screen, opening a leader’s full prompt, pressing Start, a run opening or failing to start, seeing the daily limit and choosing a replay or Settings at that limit each send an event. Plausible counts these actions while count is on. Google Analytics 4 measures them with your permission. Microsoft Clarity marks them by name when you allow recording.</p>
+    <p class="rv" data-text="body">On this page, pressing Run a what-if, Demo or Open this run in the demo, copying the install line, and playing, pausing or stepping the saved run each send an event. Plausible counts these actions while count is on. Google Analytics 4 measures them with your permission. Microsoft Clarity marks them by name when you allow recording. Switching between the light and dark looks sends an event to Plausible and Google Analytics 4 alone.</p>
     <p class="rv" data-text="body">Opening How it works, switching between the two leaders and choosing a section also send events to Plausible while count is on and to Google Analytics 4 with your permission. The event fields carry only fixed choices and ranges for the number of leaders. The count also sends the User-Agent and IP address described above.</p>
     <p class="rv" data-text="body">If your browser sends a privacy signal, Global Privacy Control or Do Not Track, these pages show no bar and run none of the three tools, the count included. Analytics choices then says so in place of the choices.</p>
     <p class="rv" data-text="body">Strictly necessary, and always on: the dashboard sets two cookies of its own. <code>paracosm_scenario</code> is set when you pick a scenario or start a run in a scenario other than the one you picked. It holds only that scenario's id and lasts 30 days, so the dashboard reopens on your pick. <code>paracosm_visitor</code> holds a random id this server gives your browser the first time you open the dashboard. It lasts 30 days and identifies your browser to this server alone.</p>
@@ -1201,37 +1154,6 @@ npm run dashboard     <span class="cm"># opens http://localhost:3456</span>
 </footer>
 
 <script>
-// Trust-signal fetch: live npm + GitHub counts. Async + best-effort —
-// failures stay silent and the SSR fallback (the static "—" placeholder
-// + hardcoded "v0.9") remains visible. Cached by browser per the CDN
-// headers npm/GitHub return; we don't add cache-busting because fresh
-// numbers on every page load aren't worth the request volume.
-(function () {
-  function setText(key, value) {
-    var el = document.querySelector('[data-trust="' + key + '"]');
-    if (el) el.textContent = value;
-  }
-  function abbreviate(n) {
-    if (n >= 1000000) return (n / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
-    if (n >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
-    return String(n);
-  }
-  // npm — version
-  fetch('https://registry.npmjs.org/paracosm/latest')
-    .then(function (r) { return r.ok ? r.json() : null; })
-    .then(function (d) { if (d && d.version) setText('npm-version', 'v' + d.version); })
-    .catch(function () {});
-  // GitHub stars + forks (one request, both numbers)
-  fetch('https://api.github.com/repos/framerslab/paracosm')
-    .then(function (r) { return r.ok ? r.json() : null; })
-    .then(function (d) {
-      if (!d) return;
-      if (typeof d.stargazers_count === 'number') setText('gh-stars', abbreviate(d.stargazers_count));
-      if (typeof d.forks_count === 'number') setText('gh-forks', abbreviate(d.forks_count));
-    })
-    .catch(function () {});
-})();
-
 // Intersection Observer for scroll-triggered reveals.
 // Falls back gracefully: if IntersectionObserver isn't supported (very
 // old browser) or never fires (puppeteer-headless without scroll, some
@@ -1253,31 +1175,6 @@ window.addEventListener('load', () => {
     document.querySelectorAll('.rv:not(.vis)').forEach(el => el.classList.add('vis'));
   }, 1500);
 });
-
-// Theme toggle synced with dashboard. The HEAD inline-script applies
-// the saved class before first paint to kill the theme-flash; this
-// block (a) syncs the button glyph to the resolved theme, (b) wires
-// the click handler, (c) sets aria-pressed so screen readers report
-// state, (d) handles the system-preference change for visitors who
-// never set an explicit choice.
-const themeBtn = document.getElementById('theme-toggle');
-const savedTheme = localStorage.getItem('paracosm-theme') || 'dark';
-function applyTheme(t) {
-  document.documentElement.classList.toggle('light', t === 'light');
-  if (themeBtn) {
-    themeBtn.textContent = t === 'dark' ? '\u2600' : '\u263D';
-    themeBtn.setAttribute('aria-pressed', t === 'light' ? 'true' : 'false');
-    themeBtn.setAttribute('aria-label', t === 'dark' ? 'Switch to light mode' : 'Switch to dark mode');
-  }
-  try { localStorage.setItem('paracosm-theme', t); } catch (_) {}
-}
-applyTheme(savedTheme);
-if (themeBtn) {
-  themeBtn.addEventListener('click', () => {
-    const next = document.documentElement.classList.contains('light') ? 'dark' : 'light';
-    applyTheme(next);
-  });
-}
 
 // Copy code to clipboard. Where the page has no clipboard (plain http at a
 // network address) or the browser refuses the write, the block says in one
@@ -1347,7 +1244,8 @@ function copyCode(btn, text) {
 }
 
 // Smooth scroll for anchor links
-document.querySelectorAll('a[href^="#"]').forEach(a => {
+// The skip link moves focus itself (assets/landing-replay.js).
+document.querySelectorAll('a[href^="#"]:not(.lp-skip)').forEach(a => {
   a.addEventListener('click', e => {
     e.preventDefault();
     const t = document.querySelector(a.getAttribute('href'));

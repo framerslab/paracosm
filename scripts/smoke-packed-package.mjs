@@ -61,6 +61,8 @@ const REQUIRED_FILES = [
   'dist/dashboard/dist/index.html',
   'dist/dashboard/landing.html',
   'assets/landing.css',
+  'assets/landing-replay.js',
+  'dist/dashboard/dist/landing-replay.json',
   'assets/fonts/fonts.css',
   'assets/fonts/inter-latin-wght-normal.woff2',
   'assets/diagrams/paracosm-flow.svg',
@@ -71,8 +73,10 @@ const REQUIRED_FILES = [
 /** [path, content type prefix, text the body must contain (or null)] */
 const PAGES = [
   ['/', 'text/html', '<title>Paracosm'],
-  // The package leaves the hero video out; the landing page must name the hosted copy.
-  ['/', 'text/html', 'https://paracosm.agentos.sh/demo/e2e-atlas-8-hero.mp4'],
+  // The landing page's first screen replays the saved pair run the build's digest holds.
+  ['/', 'text/html', 'Open this run in the demo'],
+  ['/brand/landing-replay.js', 'application/javascript', '/landing-replay.json'],
+  ['/landing-replay.json', 'application/json', '"leaders"'],
   ['/sim', 'text/html', '<div id="root">'],
   ['/brand/landing.css', 'text/css', null],
   ['/brand/fonts/fonts.css', 'text/css', "font-family: 'Inter'"],

@@ -406,6 +406,14 @@ function resolveDemoMaxTurns(): number {
   return 6;
 }
 
+/** The measured seconds a turn of a pair's run on the host's keys takes (the dashboard's copy: effectiveLaunch.ts). */
+export const DEMO_SECONDS_A_TURN = 34;
+
+/** About how long a run of this many turns takes on the host's keys, in minutes, to the nearest half. */
+export function minutesForTurns(turns: number): number {
+  return Math.round((turns * DEMO_SECONDS_A_TURN) / 60 * 2) / 2;
+}
+
 export const DEMO_EXECUTION: SimulationExecutionConfig & {
   maxTurns: number;
   maxPopulation: number;

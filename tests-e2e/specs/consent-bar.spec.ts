@@ -404,9 +404,15 @@ test.describe('the consent bar on the hosted demo', () => {
         expect(await page.evaluate(() => localStorage.getItem('plausible_ignore'))).toBeNull();
 
         // The server forwards it under the site's Plausible domain, path only.
+        // The landing page's replay starts by itself in view and counts that start as the landing page's.
         await expect.poll(async () => (await forwarded(agent)).map(row => row.body.name).sort())
-          .toEqual(pathname === '/sim' ? ['pageview', 'qs_view'] : ['pageview']);
+          .toEqual(pathname === '/sim' ? ['pageview', 'qs_view'] : pathname === '/' ? ['lp_replay', 'pageview'] : ['pageview']);
         const events = await forwarded(agent);
+        if (pathname === '/') {
+          expect(events.find(row => row.body.name === 'lp_replay')?.body).toEqual({
+            name: 'lp_replay', url: 'https://paracosm.agentos.sh/', domain: 'paracosm.agentos.sh', props: { action: 'auto_start', motion: 'full' },
+          });
+        }
         const event = events.find(row => row.body.name === 'pageview')!;
         if (pathname === '/sim') {
           const named = watch.counts.filter(request => request.postDataJSON().n !== 'pageview');

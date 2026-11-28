@@ -22,10 +22,26 @@ const EVENTS = Object.freeze({
   qs_pair_switch: rule(false, { to: ['1', '2'] }),
   qs_prompt_open: rule(true, { side: ['left', 'right'] }),
   tab_change: rule(false, { to: ['quickstart', 'sim', 'reports', 'studio', 'viz', 'chat', 'library', 'settings', 'about'] }),
+  // The landing page's own events, counted as the landing page's.
+  lp_demo_open: rule(true, {
+    from: ['hero', 'header', 'closing', 'replay', 'size'],
+    state: ['run_left', 'no_run_left', 'unknown'],
+  }),
+  lp_copy: rule(true, { what: ['install', 'example', 'fork'], result: ['copied', 'refused'] }),
+  lp_replay: rule(true, {
+    action: ['auto_start', 'play', 'pause', 'step', 'end', 'again'],
+    motion: ['full', 'reduced'],
+  }),
+  lp_look: rule(false, { to: ['light', 'dark'] }),
 });
 
 /** A named first-screen or dashboard frame event. */
 export type FirstScreenEventName = keyof typeof EVENTS;
+
+/** The page an event is counted on: the landing page's own events on /, every other one on /sim. */
+export function countedPageOf(name: FirstScreenEventName): '/' | '/sim' {
+  return name.startsWith('lp_') ? '/' : '/sim';
+}
 
 function isEventName(name: unknown): name is FirstScreenEventName {
   return typeof name === 'string' && Object.hasOwn(EVENTS, name);

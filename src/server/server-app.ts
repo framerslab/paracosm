@@ -7,7 +7,7 @@ import { resolve, dirname, relative, sep } from 'node:path';
 import { pipeline } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
-import { normalizeSimulationConfig, applyDemoCaps, countMissingOrders, DEFAULT_MODELS, DEMO_EXECUTION, DEMO_PROVIDER, MIN_SIMULATION_ACTORS, MAX_SIMULATION_ACTORS, MAX_SIMULATION_TURNS, type NormalizedSimulationConfig, type SimulationSetupPayload } from '../cli/sim-config.js';
+import { normalizeSimulationConfig, applyDemoCaps, countMissingOrders, DEFAULT_MODELS, DEMO_EXECUTION, DEMO_PROVIDER, minutesForTurns, MIN_SIMULATION_ACTORS, MAX_SIMULATION_ACTORS, MAX_SIMULATION_TURNS, type NormalizedSimulationConfig, type SimulationSetupPayload } from '../cli/sim-config.js';
 import { runPairSimulations, runForkSimulation, runBatchSimulations, type BroadcastFn, type RunnerOptions } from '../cli/pair-runner.js';
 import {
   handleFetchSeed, handleCompileFromSeed, handleCompileFromSeedStatus,
@@ -463,6 +463,34 @@ function streamFile(
 }
 
 /** Resolved paracosm version from package.json (for docs header and API responses). */
+/**
+ * The landing page's link into the demo for the saved pair run it replays:
+ * the session named by the digest the dashboard's build wrote beside itself
+ * (dist/landing-replay.json), or the demo itself when the build holds none.
+ * A digest found is kept for the life of the process.
+ */
+let landingRunSession: string | null = null;
+function landingRunHref(distDir: string): string {
+  if (landingRunSession === null) {
+    try {
+      const digest = JSON.parse(readFileSync(resolve(distDir, 'landing-replay.json'), 'utf-8')) as { session?: unknown };
+      if (typeof digest.session === 'string' && /^[A-Za-z0-9-]{1,80}$/.test(digest.session)) landingRunSession = digest.session;
+    } catch {
+      // No digest in this build: the link opens the demo.
+    }
+  }
+  return landingRunSession === null ? '/sim' : `/sim?replay=${landingRunSession}&amp;tab=sim`;
+}
+
+/** A free run's length as the landing page's key says it, written and spoken: "3½" and "3 and a half". */
+function freeRunMinutes(): { written: string; spoken: string } {
+  const minutes = minutesForTurns(DEMO_EXECUTION.maxTurns);
+  const whole = Math.floor(minutes);
+  const half = minutes - whole >= 0.5;
+  if (whole === 0) return { written: '½', spoken: 'half a' };
+  return { written: half ? `${whole}½` : String(whole), spoken: half ? `${whole} and a half` : String(whole) };
+}
+
 const PARACOSM_VERSION: string = (() => {
   try {
     const pkgPath = resolve(__dirname, '..', '..', 'package.json');
@@ -5177,6 +5205,21 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     const hasViteBuild = existsSync(resolve(distDir, 'index.html'));
     const pathname = (req.url || '/').split('?')[0];
 
+    // The digest of the saved pair run the landing page replays, written by
+    // the dashboard's build (src/dashboard/vite.config.ts). A copy whose
+    // build holds none answers 404, and the page says no saved run ships.
+    if (pathname === '/landing-replay.json') {
+      const digestPath = resolve(distDir, 'landing-replay.json');
+      if (regularFileStat(digestPath)) {
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'public, max-age=300' });
+        res.end(readFileSync(digestPath));
+      } else {
+        res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('No saved run ships with this copy.');
+      }
+      return;
+    }
+
     // Landing page at /
     if (pathname === '/' || pathname === '/index.html') {
       const landingPath = resolve(__dirname, '../dashboard/landing.html');
@@ -5187,10 +5230,20 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         // (`0.1.0` lingered in the HTML long after we shipped 0.4.x).
         // The placeholder is what lives on disk; we swap it per-request
         // since it's a one-line string replace on a cached template.
+        // The Run key says what a run costs and how long it takes: on the
+        // hosted demo a free run on the host's keys, elsewhere a run on this
+        // server's own keys. The replay's link opens the run the build's
+        // digest names.
+        const freeRun = freeRunMinutes();
+        const keyLine = serverMode === 'hosted_demo' ? `A free run, about ${freeRun.written} minutes` : 'Runs on this server’s API keys.';
+        const keySpoken = serverMode === 'hosted_demo' ? `a free run, about ${freeRun.spoken} minutes` : 'runs on this server’s API keys';
         const page = readFileSync(landingPath, 'utf-8').replace(
           /__PARACOSM_VERSION__/g,
           PARACOSM_VERSION,
-        ).replaceAll('__VISITOR_KEY_IDLE_MINUTES__', String(visitorKeyIdleMinutes));
+        ).replaceAll('__VISITOR_KEY_IDLE_MINUTES__', String(visitorKeyIdleMinutes))
+          .replaceAll('__LANDING_RUN_HREF__', landingRunHref(distDir))
+          .replaceAll('__LANDING_KEY_LINE__', keyLine)
+          .replaceAll('__LANDING_KEY_SPOKEN__', keySpoken);
         res.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-cache' });
         res.end(siteAnalytics ? withSiteAnalytics(page, analyticsPage(req)) : page);
         return;

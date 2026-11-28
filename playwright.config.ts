@@ -38,12 +38,13 @@ export default defineConfig({
     // spec, the phone rows and grid window spec, the phone rows more spec, the
     // run view toast and Event Log chip spec and the Viz rows and type spec set
     // each width they check themselves, so one project runs them. So does
-    // the saved run replay spec, which reads the one shared-run server.
-    { name: 'chromium-tablet',  testIgnore: /ai-marks|digital-twin-events|run-status-events|run-per-visitor|dashboard-display|toolbox-log-and-share-link|forged-tool-view|viz-living-grid|sim-first-screen|first-screen-events|full-prompt|settings-key-field|sim-frame|mobile-responsive|phone-rows-and-grid-window|phone-rows-more|saved-run-replay|run-view-toast-and-log-chip|viz-rows-type/, use: { ...devices['Desktop Chrome'], viewport: { width: 768, height: 1024 } } },
+    // the saved run replay spec, which reads the one shared-run server. So does
+    // the landing page's first screen spec, which sets each width it checks.
+    { name: 'chromium-tablet',  testIgnore: /ai-marks|digital-twin-events|run-status-events|run-per-visitor|dashboard-display|toolbox-log-and-share-link|forged-tool-view|viz-living-grid|sim-first-screen|first-screen-events|full-prompt|settings-key-field|sim-frame|mobile-responsive|phone-rows-and-grid-window|phone-rows-more|saved-run-replay|run-view-toast-and-log-chip|viz-rows-type|landing-first-screen/, use: { ...devices['Desktop Chrome'], viewport: { width: 768, height: 1024 } } },
     // Pixel 5 ships with the Chromium engine in Playwright's device
     // catalogue. iPhone 13 would force the webkit channel, which we
     // don't bundle (only chromium is installed via test:e2e:install).
-    { name: 'chromium-mobile',  testIgnore: /ai-marks|digital-twin-events|run-status-events|run-per-visitor|dashboard-display|toolbox-log-and-share-link|forged-tool-view|viz-living-grid|sim-first-screen|first-screen-events|full-prompt|settings-key-field|sim-frame|mobile-responsive|phone-rows-and-grid-window|phone-rows-more|saved-run-replay|run-view-toast-and-log-chip|viz-rows-type/, use: { ...devices['Pixel 5'] } },
+    { name: 'chromium-mobile',  testIgnore: /ai-marks|digital-twin-events|run-status-events|run-per-visitor|dashboard-display|toolbox-log-and-share-link|forged-tool-view|viz-living-grid|sim-first-screen|first-screen-events|full-prompt|settings-key-field|sim-frame|mobile-responsive|phone-rows-and-grid-window|phone-rows-more|saved-run-replay|run-view-toast-and-log-chip|viz-rows-type|landing-first-screen/, use: { ...devices['Pixel 5'] } },
   ],
   webServer: process.env.PARACOSM_E2E_BASE_URL
     ? undefined

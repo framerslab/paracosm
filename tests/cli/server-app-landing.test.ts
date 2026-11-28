@@ -23,6 +23,9 @@ import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
 import { createMarsServer } from '../../src/server/server-app.js';
 import * as builtInScenarioModule from '../../src/engine/scenarios/index.js';
+import { DEMO_EXECUTION, minutesForTurns } from '../../src/cli/sim-config.js';
+import { buildLandingReplay, type SavedRun } from '../../src/dashboard/src/landing/replayDigest.js';
+import { minutesForTurns as dashboardMinutesForTurns } from '../../src/dashboard/src/components/quickstart/first-screen/effectiveLaunch.js';
 
 const root = resolve(import.meta.dirname, '..', '..');
 
@@ -83,7 +86,9 @@ test('the landing page tells a visitor what to use today', () => {
   assert.match(getStarted, /npm install paracosm/, 'the section must carry the install line');
   assert.match(getStarted, /href="\/sim"/, 'the section must link the hosted dashboard');
   assert.match(getStarted, /href="\/docs"/, 'the section must link the API reference');
-  assert.match(html, /<a href="#get-started"/, 'the navigation must link the section');
+  const first = html.slice(html.indexOf('<section class="lp-first"'), html.indexOf('</section>', html.indexOf('<section class="lp-first"')));
+  assert.match(first, /npm install paracosm/, 'the first screen must carry the install line');
+  assert.match(first, /<a class="lp-key" href="\/sim"/, 'the first screen must link the hosted dashboard');
 });
 
 /** The markup from `open` up to the first `close` after it. */
@@ -104,12 +109,12 @@ function wordsOf(markup: string): string {
   return words;
 }
 
-test('wherever the landing page links the API reference it also links the HTTP API reference and the Cookbook', () => {
+test('the footer and the get-started section link the API reference, the HTTP API reference and the Cookbook; the header’s one Docs link opens the API reference', () => {
   const httpApi = 'href="https://github.com/framerslab/paracosm/blob/master/docs/HTTP_API.md"';
   const cookbook = 'href="https://github.com/framerslab/paracosm/blob/master/docs/COOKBOOK.md"';
+  // The header is one row with no menu, so its Docs link names the API reference alone.
+  assert.match(between('<nav class="lp-nav"', '</nav>'), /<a href="\/docs" class="lp-wide">Docs<\/a>/);
   const places: Record<string, string> = {
-    'the Docs menu': between('type="button">Docs <svg', '</div>'),
-    'the mobile Docs menu': between('<summary><span>Docs</span></summary>', '</details>'),
     'the footer': between('<nav class="ft-links"', '</nav>'),
     'the get-started section': section('get-started'),
   };
@@ -449,7 +454,7 @@ test('the served landing page describes what differs between timelines', () => {
   assert.equal(html.match(/<meta name="description" content="([^"]*)">/)?.[1], description);
   assert.equal(html.match(/<meta property="og:description" content="([^"]*)">/)?.[1], description);
   assert.equal(html.match(/<meta name="twitter:description" content="([^"]*)">/)?.[1], description);
-  assert.equal(html.match(/<p class="hero-positioning"[^>]*>([^<]*)<\/p>/)?.[1].trim(), lead);
+  assert.equal(html.match(/<p class="hero-positioning[^"]*"[^>]*>([^<]*)<\/p>/)?.[1].trim(), lead);
   const closing = 'Compile a brief. Run it as timelines from the same seed and change one thing between them: who leads or an event at any turn. Watch the trajectories diverge.';
   assert.equal(html.match(/<section class="banner">[\s\S]*?<p class="rv">([^<]*)<\/p>/)?.[1], closing);
   // A run reads no intervention: WorldModel.intervene() keeps it on the artifact only, so the page never offers one as the thing to change.
@@ -531,4 +536,67 @@ test('the privacy section says what the server keeps of a page view and for how 
   assert.doesNotMatch(privacy, /browser.s name/, 'the User-Agent is more than the browser\'s name');
   assert.match(privacy, /holds your IP address in memory for one minute/, 'names the count limit and its length');
   assert.match(privacy, /never writes it to disk/, 'says the count limit is not saved');
+});
+
+/** The pinned pair run the landing page replays, as the repository keeps it. */
+const pinnedRun = JSON.parse(readFileSync(resolve(root, 'src/dashboard/src/landing/pinned-run.json'), 'utf-8')) as SavedRun;
+
+test('GET /landing-replay.json sends the digest the dashboard build wrote from the pinned pair run', async () => {
+  const res = await fetch(`${localSite}/landing-replay.json`);
+  assert.equal(res.status, 200, 'CI builds the dashboard, which writes the digest, before the tests');
+  assert.match(res.headers.get('content-type') ?? '', /^application\/json/);
+  const digest = await res.json() as ReturnType<typeof buildLandingReplay>;
+  assert.deepEqual(digest, buildLandingReplay(pinnedRun));
+
+  assert.equal(digest.session, pinnedRun.session);
+  assert.equal(digest.leaders.length, 2);
+  assert.equal(digest.frames.length, digest.turns);
+  for (const frame of digest.frames) {
+    for (const side of frame.sides) {
+      assert.ok(side.event && side.event !== 'Director generating...', `turn ${frame.turn} names its event`);
+      assert.ok(side.decision, `turn ${frame.turn} names each decision`);
+      assert.match(side.outcome, /^(risky|conservative)_(success|failure)$/);
+      assert.equal(side.people.filter(person => person[2] === 1).length, side.population, `turn ${frame.turn}: the living people are the population`);
+    }
+  }
+  assert.equal(digest.verdict.winner, 'Dietrich Voss');
+  assert.deepEqual(digest.verdict.population, [37, 43]);
+  assert.equal(digest.cost.llmCalls, 121);
+});
+
+test('the build refuses a pinned run that is not a pair of 6 to 8 turns, naming the run', () => {
+  const status = pinnedRun.events.find(event => event.event === 'status') as { data: { actors: unknown[] } };
+  const three: SavedRun = {
+    ...pinnedRun,
+    events: pinnedRun.events.map(event => event === status
+      ? { event: 'status', data: { ...status.data, actors: [...status.data.actors, status.data.actors[0]] } }
+      : event),
+  };
+  assert.throws(() => buildLandingReplay(three), new RegExp(`${pinnedRun.session} has 3 leaders`));
+  const short: SavedRun = {
+    ...pinnedRun,
+    events: pinnedRun.events.filter(event => !(event.event === 'sim' && (event.data as { data: { turn?: number } }).data.turn! > 5)),
+  };
+  assert.throws(() => buildLandingReplay(short), new RegExp(`${pinnedRun.session} has 5 turns`));
+});
+
+test('the served landing page links the pinned run in the demo, says what a run costs, and asks npm and GitHub nothing', async () => {
+  assert.ok(html.includes(`href="/sim?replay=${pinnedRun.session}&amp;tab=sim"`), 'Open this run in the demo opens the pinned run');
+  assert.doesNotMatch(html, /__LANDING_[A-Z_]+__/, 'every landing fill is filled');
+  assert.doesNotMatch(html, /registry\.npmjs\.org|api\.github\.com/, 'the page asks npm and GitHub nothing');
+  assert.match(html, /<span class="lp-key-line">Runs on this server’s API keys\.<\/span>/, 'a copy from the package or a clone runs on its own keys');
+  const trust = html.slice(html.indexOf('<ul class="lp-trust"'), html.indexOf('</ul>', html.indexOf('<ul class="lp-trust"')));
+  const version = (JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf-8')) as { version: string }).version;
+  for (const fact of ['Open-source simulation engine in TypeScript', 'Apache-2.0', 'Built on <a href="https://agentos.sh">AgentOS</a>', `v${version} on npm`]) {
+    assert.ok(trust.includes(fact), fact);
+  }
+
+  for (let turns = 1; turns <= 20; turns++) {
+    assert.equal(minutesForTurns(turns), dashboardMinutesForTurns(turns), `the server and the dashboard time ${turns} turns alike`);
+  }
+  const hosted = await (await fetch(`${await hostedSite()}/`)).text();
+  const minutes = minutesForTurns(DEMO_EXECUTION.maxTurns);
+  const figure = `${Math.floor(minutes) || ''}${minutes % 1 ? '½' : ''}`;
+  assert.ok(hosted.includes(`<span class="lp-key-line">A free run, about ${figure} minutes</span>`), `the hosted demo's key says a free run takes about ${figure} minutes`);
+  assert.ok(hosted.includes(`aria-label="Run a what-if in the demo: a free run, about ${Math.floor(minutes)}${minutes % 1 ? ' and a half' : ''} minutes"`));
 });

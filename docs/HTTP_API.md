@@ -61,7 +61,8 @@ A local server and `platform_api` mode answer every caller that reaches the rout
 | GET    | `/leader-prompt` | The exact opening inputs and a sample turn for a written leader in the selected scenario |
 | GET    | `/scenarios` | The scenarios this visitor can run, with their figures, leaders and labels |
 | POST   | `/forget-keys` | Drop the run and chat agents that hold this visitor's keys |
-| POST   | `/api/event` | Hosted demo only: one page view from the consent bar, or one named dashboard event, forwarded as the public page it names to the site's Plausible count |
+| POST   | `/api/event` | Hosted demo only: one page view from the consent bar, or one named dashboard or landing page event, forwarded as the public page it names to the site's Plausible count |
+| GET    | `/landing-replay.json` | The digest of the saved pair run the landing page replays on its first screen |
 
 ---
 
@@ -396,7 +397,7 @@ A named event:
 { "n": "qs_pair_switch", "u": "/sim", "p": { "to": "2" } }
 ```
 
-The body holds exactly `n`, `u` and `p`. `n` is one of the ten names below. `u` is the dashboard's path, `/sim` or a path under it. `p` holds exactly that event's fields, each a string from the field's list, and `{}` for an event with no fields. The server copies those values and nothing else. Another name, a missing, extra or inherited field, a value off its list, free text, a number, an array or `null` in place of a value, a key other than `n`, `u` and `p`, or a malformed path answers `400`, and nothing is forwarded. A path outside the dashboard answers `204`.
+The body holds exactly `n`, `u` and `p`. `n` is one of the fourteen names below. `u` is the page the event belongs to: the landing page's own events (the four `lp_` names) are sent from `/`, every other one from the dashboard's path, `/sim` or a path under it. `p` holds exactly that event's fields, each a string from the field's list, and `{}` for an event with no fields. The server copies those values and nothing else. Another name, a missing, extra or inherited field, a value off its list, free text, a number, an array or `null` in place of a value, a key other than `n`, `u` and `p`, or a malformed path answers `400`, and nothing is forwarded. An event sent from a page other than its own answers `204`.
 
 | Event | Sent when | Fields and their values | Clarity |
 |-------|-----------|-------------------------|---------|
@@ -410,6 +411,10 @@ The body holds exactly `n`, `u` and `p`. `n` is one of the ten names below. `u` 
 | `qs_pair_switch` | The narrow layout shows the other leader of a pair | `to`: `1`, `2` | No |
 | `qs_prompt_open` | A written leader’s full prompt opens | `side`: `left`, `right` | Yes |
 | `tab_change` | A visitor picks a different section in the header's section row or its More menu; links inside a page that open another section are not counted | `to`: `quickstart`, `sim`, `reports`, `studio`, `viz`, `chat`, `library`, `settings`, `about` | No |
+| `lp_demo_open` | The landing page's Run a what-if key, the header's Demo link or the replay's Open this run in the demo opens `/sim` | `from`: `hero`, `header`, `closing`, `replay`, `size`. `state`: `run_left`, `no_run_left`, `unknown` | Yes |
+| `lp_copy` | A press of a copy key on the landing page | `what`: `install`, `example`, `fork`. `result`: `copied`, `refused` | Yes |
+| `lp_replay` | The landing page's saved-run replay starts by itself, is played, paused or stepped, reaches the verdict, or is played again | `action`: `auto_start`, `play`, `pause`, `step`, `end`, `again`. `motion`: `full`, `reduced` | Yes |
+| `lp_look` | The landing page's look switch | `to`: `light`, `dark` | No |
 
 The prompt event records one open. `left` is the first written card and `right` the second, including on the narrow switch. Closing, retrying and moving between parts send no additional event.
 
@@ -440,6 +445,10 @@ The rest of the path, any query string and any fragment stay on the server, and 
 - `413 body_too_large`: the body is over 4,096 bytes
 - `429 too_many_events`: the address (an IPv6 address by its /64) has sent 120 page views and named events together in its current minute, or 32 forwards are open at once across all visitors; nothing is forwarded, and `Retry-After` is 60 seconds
 - `502`: the instance did not take it (refused, unreachable or slower than 5 seconds)
+
+## `GET /landing-replay.json`
+
+The landing page's first screen replays one saved pair run of Mars Genesis from this file. The dashboard's build writes it from the pinned run in `src/dashboard/src/landing/pinned-run.json` (`buildLandingReplay` in `src/dashboard/src/landing/replayDigest.ts`) into `src/dashboard/dist/landing-replay.json`, and a pinned run that is not a pair of 6 to 8 turns fails the build. It holds the run's session id, scenario, seed and turns; both leaders with their HEXACO profiles; the people both colonies start with; for each turn, each timeline's event as the scenario or the event director wrote it, the leader's decision and its outcome class, the tools the departments forged with the judge's verdict and confidence, the population, morale and each person's state; the run's spend at the end of each turn; and the verdict with the turn where the two timelines split. The page asks no model and no saved-run store for anything. A build that holds no digest answers `404`, and the page says no saved run ships with that copy. The landing page's "Open this run in the demo" link opens `/sim?replay=<session id>&tab=sim`.
 
 ## `GET /rate-limit`
 

@@ -1,0 +1,60 @@
+name: Landing first screen pictures
+
+on:
+  pull_request:
+    paths:
+      - src/dashboard/landing.html
+      - assets/landing.css
+      - assets/landing-replay.js
+      - src/dashboard/src/landing/**
+      - tests-e2e/specs/landing-first-screen-pictures.spec.ts
+      - .github/workflows/landing-first-screen-pictures.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: landing-first-screen-pictures-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  capture:
+    name: Capture (${{ matrix.phase }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        phase: [before, after]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: matrix.phase == 'before'
+        with:
+          path: before
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - name: Copy the same capture spec to the before checkout
+        if: matrix.phase == 'before'
+        run: cp tests-e2e/specs/landing-first-screen-pictures.spec.ts before/tests-e2e/specs/
+      - name: Capture the landing page's first screen
+        working-directory: ${{ matrix.phase == 'before' && 'before' || '.' }}
+        env:
+          LANDING_CAPTURE: ${{ matrix.phase }}
+        run: |
+          npm ci
+          npm ci --prefix src/dashboard
+          npx playwright install --with-deps chromium
+          npx playwright test tests-e2e/specs/landing-first-screen-pictures.spec.ts --project=chromium-desktop
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: landing-first-screen-${{ matrix.phase }}
+          path: ${{ matrix.phase == 'before' && 'before/' || '' }}test-pictures/landing-first-screen/
+          if-no-files-found: error
+          retention-days: 14
