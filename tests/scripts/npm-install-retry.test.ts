@@ -1,5 +1,6 @@
 import test, { type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
@@ -174,4 +175,29 @@ test('npm killed by a signal after printing a tarball 404 is reported without re
     writeStderr: () => {},
   }), /Command failed: npm install \(signal SIGTERM\)/);
   assert.deepEqual(waits, []);
+});
+
+test('npm startup reports descriptor exhaustion before its stderr pipe exists', { skip: process.platform === 'win32' }, () => {
+  const helper = new URL('../../scripts/npm-install-retry.mjs', import.meta.url);
+  const source = `
+    import assert from 'node:assert/strict';
+    import { closeSync, openSync } from 'node:fs';
+    import { npmWithRetry } from ${JSON.stringify(helper.href)};
+
+    const descriptors = [];
+    try {
+      for (;;) descriptors.push(openSync('/dev/null', 'r'));
+    } catch (error) {
+      assert.equal(error.code, 'EMFILE');
+    }
+    try {
+      await assert.rejects(npmWithRetry(['install'], { cwd: process.cwd() }), { code: 'EMFILE' });
+    } finally {
+      for (const descriptor of descriptors) closeSync(descriptor);
+    }
+  `;
+  execFileSync('/bin/sh', [
+    '-c', 'ulimit -n 64 && exec "$@"', 'npm-retry-fixture',
+    process.execPath, '--input-type=module', '--eval', source,
+  ]);
 });
