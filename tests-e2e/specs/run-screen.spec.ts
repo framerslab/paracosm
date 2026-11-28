@@ -205,7 +205,7 @@ test('one turn compares the two decisions while they arrive', async ({ browser }
   }
 });
 
-async function loadPairRecording(page: Page, turns: number, stopped = false) {
+async function loadPairRecording(page: Page, recording: ReturnType<typeof watchPairReplay>) {
   const preview = page.getByRole('dialog', { name: 'Load simulation' });
   await expect(async () => {
     await page.evaluate(text => {
@@ -214,7 +214,7 @@ async function loadPairRecording(page: Page, turns: number, stopped = false) {
       for (const type of ['dragenter', 'dragover', 'drop']) {
         window.dispatchEvent(new DragEvent(type, { dataTransfer: transfer, bubbles: true, cancelable: true }));
       }
-    }, JSON.stringify(watchPairReplay(turns, stopped)));
+    }, JSON.stringify(recording));
     await expect(preview).toBeVisible({ timeout: 3_000 });
   }).toPass({ timeout: 30_000 });
   await preview.getByRole('button', { name: /^(Load|Load anyway|Replace current simulation)$/ }).click();
@@ -386,7 +386,7 @@ test('one playhead follows the pair from Watch into Viz', async ({ browser }, in
     if (await reject.isVisible()) await reject.click();
     const line = page.getByRole('slider', { name: 'Run line' });
     for (const total of [12, 100]) {
-      await loadPairRecording(page, total);
+      await loadPairRecording(page, watchPairReplay(total));
       await expect(line).toHaveAttribute('aria-valuetext', 'Verdict');
       await expect(line.locator('[data-run-mark]:not([data-run-mark="end"])')).toHaveCount(total);
       await expect(line.locator('[data-run-number]:visible')).toHaveCount(total === 100 ? 10 : total);
@@ -399,7 +399,7 @@ test('one playhead follows the pair from Watch into Viz', async ({ browser }, in
       await expect(line.locator('[data-run-number]:visible')).toHaveCount(0);
       await page.setViewportSize({ width: 1440, height: 900 });
     }
-    await loadPairRecording(page, 3, true);
+    await loadPairRecording(page, watchPairReplay(3, true));
     await expect(line.locator('[data-run-mark="3"]')).toHaveAttribute('data-interrupted', 'true');
     await expect(line.locator('[data-run-mark]')).toHaveCount(3);
     await expect(line).toHaveAttribute('aria-valuenow', '3');
@@ -407,6 +407,15 @@ test('one playhead follows the pair from Watch into Viz', async ({ browser }, in
     await expect(line).toHaveAttribute('aria-valuenow', '2');
     await line.press('ArrowRight');
     await expect(line).toHaveAttribute('aria-valuenow', '3');
+
+    const { schemaVersion, events } = watchPairReplay(3);
+    await loadPairRecording(page, {
+      schemaVersion,
+      events: events.filter(event => event.type !== 'systems_snapshot'),
+    });
+    await expect(line).toHaveAttribute('aria-valuetext', 'Verdict');
+    await expect(page.getByText('No verdict came back for this run.', { exact: true })).toBeVisible();
+    await expect(page.getByText('Turn 3: Ration the water for the greenhouse.', { exact: true }).first()).toBeVisible();
   } finally {
     await saved.close();
   }

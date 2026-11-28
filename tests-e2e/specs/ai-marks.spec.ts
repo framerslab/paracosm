@@ -299,6 +299,7 @@ test('generated leaders and successful chat replies carry their own source', asy
     aiGenerated: true, generator: 'paracosm', models: expect.any(Object),
   });
   await page.goto(origin + '/sim?tab=sim&replay=' + encodeURIComponent(sessionId));
+  await readLastTurn(page);
   await expectMark(page.getByText('Keep a reserve of water.', { exact: true }).filter({ visible: true }).first());
   await expectQuietPage(page);
 });
