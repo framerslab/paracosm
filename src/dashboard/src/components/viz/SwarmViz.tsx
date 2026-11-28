@@ -180,7 +180,9 @@ export function SwarmViz({ state, isReplay, playhead, stoppedPair = false, onNav
   const playing = playhead ? playhead.mode !== 'hold' && playhead.selected !== 'end' &&
     (!stoppedPair || playhead.mode === 'replay') : localPlaying;
   const speed = playhead?.speed ?? localSpeed;
-  const paused = playhead !== undefined && !playing;
+  // Scrubbing in Viz retains the colony's turn transition. An explicit
+  // Pause shared from either tab holds the grids on the selected frame.
+  const paused = playhead?.paused || stoppedPair && !playing;
   const sharedPlayback = playhead !== undefined;
   const setSpeed = (next: number) => {
     if (playhead && (RUN_SPEEDS as readonly number[]).includes(next)) playhead.setSpeed(next as RunSpeed);
@@ -247,7 +249,7 @@ export function SwarmViz({ state, isReplay, playhead, stoppedPair = false, onNav
   const handleTurnChange = useCallback((index: number) => {
     if (playhead) {
       const turn = playhead.turns[index];
-      if (turn !== undefined) playhead.select(turn);
+      if (turn !== undefined) playhead.select(turn, false);
       return;
     }
     setPlaying(false);

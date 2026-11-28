@@ -94,7 +94,8 @@ export function RunPlayBar({ playhead, arrivedTurns, maxTurns, stopped, turnTitl
         if (arrivedTurns[0] !== undefined && selected !== arrivedTurns[0]) pick(arrivedTurns[0], focus);
         break;
       case 'End':
-        if (endReady && !atEnd && endSeen) pick('end', false);
+        if (stopped && newest !== null && selected !== newest) pick(newest, focus);
+        else if (endReady && !atEnd && endSeen) pick('end', false);
         else latest(focus);
         break;
       case ' ':

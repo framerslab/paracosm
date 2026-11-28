@@ -1078,7 +1078,7 @@ function AppContent() {
     Boolean(ownVerdict?.winner || ownVerdict?.skipped ||
       (replaySessionId && sse.replayDone) || sse.loadedRuns && !sse.runKey && sse.replayDone);
   const playhead = useRunPlayhead(pairIdentity, pairTurns, pairEndReady);
-  const showStatusCost = !pairWatch || (launchedRun?.runKey === sse.runKey && launchedRun?.usedVisitorKey === true);
+  const showStatusCost = activeTab !== 'sim' || !pairWatch || (launchedRun?.runKey === sse.runKey && launchedRun?.usedVisitorKey === true);
   const wipeServer = adminTokenSaved && serverAdminWrite === true ? handleWipeServer : undefined;
 
   return (

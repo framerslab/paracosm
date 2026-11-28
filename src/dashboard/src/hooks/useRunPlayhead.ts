@@ -14,6 +14,7 @@ interface Cursor {
   mode: Mode;
   position: WatchTurn | null;
   speed: RunSpeed;
+  paused: boolean;
   endSeen: boolean;
   reached: Reached;
 }
@@ -28,9 +29,10 @@ export interface RunPlayhead {
   endSeen: boolean;
   reached: Reached;
   speed: RunSpeed;
+  paused: boolean;
   hasBack: boolean;
   hasForward: boolean;
-  select: (position: WatchTurn) => void;
+  select: (position: WatchTurn, pauseGrid?: boolean) => void;
   step: (direction: -1 | 1) => void;
   toggle: () => void;
   restart: () => void;
@@ -41,7 +43,7 @@ export interface RunPlayhead {
 const READING_INTERVAL = 30_000;
 
 function fresh(identity: string | null, position: WatchTurn | null = null): Cursor {
-  return { identity, mode: position === null ? 'follow' : 'hold', position, speed: 1, endSeen: false, reached: 'following' };
+  return { identity, mode: position === null ? 'follow' : 'hold', position, speed: 1, paused: position !== null, endSeen: false, reached: 'following' };
 }
 
 function restore(identity: string): WatchTurn | null {
@@ -102,13 +104,16 @@ export function useRunPlayhead(identity: string | null, arrivedTurns: readonly n
     return () => window.clearTimeout(timer);
   }, [current.mode, current.speed, identity, next, selected]);
 
-  const move = (position: WatchTurn | null, mode: Mode, reached: Reached = 'key') => {
+  const move = (position: WatchTurn | null, mode: Mode, reached: Reached = 'key', pauseGrid = mode === 'hold') => {
     setCursor(latest => latest.identity === identity
-      ? { ...latest, mode, position, reached, endSeen: endSeen || position === 'end' }
+      ? {
+        ...latest, mode, position, reached, endSeen: endSeen || position === 'end',
+        paused: pauseGrid || mode === 'hold' && latest.paused,
+      }
       : latest);
   };
-  const select = (position: WatchTurn) => {
-    if (positions.includes(position)) move(position, 'hold');
+  const select = (position: WatchTurn, pauseGrid = true) => {
+    if (positions.includes(position)) move(position, 'hold', 'key', pauseGrid);
   };
   return {
     mode: current.mode,
@@ -119,6 +124,7 @@ export function useRunPlayhead(identity: string | null, arrivedTurns: readonly n
     endSeen,
     reached: current.reached,
     speed: current.speed,
+    paused: current.paused,
     hasBack: previous !== undefined,
     hasForward: next !== undefined && selected !== null,
     select,
