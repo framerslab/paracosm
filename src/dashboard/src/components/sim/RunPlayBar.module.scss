@@ -11,6 +11,7 @@
   --play-breakpoint-padding: calc(4 * var(--frame-side-padding));
 
   position: relative;
+  container-type: inline-size;
   z-index: 2;
   flex: 0 0 auto;
   inline-size: calc(100% - var(--play-breakpoint-padding));
@@ -53,25 +54,45 @@
   --play-track-end: calc(var(--play-end-width) / 2);
 
   position: absolute;
-  inset-inline: var(--play-track-start) var(--play-track-end);
+  inset-inline: 0;
   inset-block-start: calc(var(--frame-target-size) / 4);
   block-size: var(--frame-rule-width);
-  background: var(--edge-control);
   pointer-events: none;
+
+  &::before,
+  &[data-arrived='true']::after {
+    content: '';
+    position: absolute;
+    inset-inline-start: var(--play-track-start);
+    block-size: 100%;
+  }
+
+  &::before {
+    inset-inline-end: var(--play-track-end);
+    background: var(--edge-control);
+  }
+
+  &[data-arrived='true']::after {
+    inline-size: calc((100% - var(--play-end-width)) * var(--play-arrived-index) / var(--play-turn-count));
+    background: var(--amber);
+  }
+
+  &[data-end='true']::after {
+    inline-size: auto;
+    inset-inline-end: var(--play-track-end);
+  }
 }
 
-.track[data-arrived='true']::after {
-  content: '';
-  display: block;
-  inline-size: min(100%, calc((100% - var(--play-track-end)) * var(--play-arrived-index) / var(--play-turn-count)));
-  block-size: 100%;
-  background: var(--amber);
+.line[data-stopped] {
+  --play-end-width: 0px;
+
+  .track { --play-track-end: var(--play-track-start); }
 }
 
 .mark {
   position: relative;
   display: grid;
-  grid-template-rows: 1fr 1fr;
+  grid-template-rows: calc(var(--frame-target-size) / 2) auto;
   place-items: center;
   min-inline-size: 0;
   min-block-size: var(--frame-target-size);
@@ -127,6 +148,7 @@
 .number,
 .endLabel {
   font-size: var(--play-number-size);
+  overflow-wrap: anywhere;
 }
 
 .ring {
@@ -281,4 +303,8 @@
 
 @media (min-width: 600px) and (max-width: 767px) {
   .compactTurn[data-many] { grid-area: 2 / 4; }
+}
+
+@container (max-width: 49em) {
+  .word { display: none; }
 }

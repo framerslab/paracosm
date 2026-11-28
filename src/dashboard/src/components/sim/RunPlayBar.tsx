@@ -9,7 +9,7 @@ interface RunPlayBarProps {
   arrivedTurns: readonly number[];
   maxTurns: number;
   stopped: boolean;
-  turnTitle: (turn: number) => string;
+  turnTitle: (turn: number) => { label: string; authored: boolean };
   focusTurn: () => void;
 }
 
@@ -26,6 +26,7 @@ export function RunPlayBar({ playhead, arrivedTurns, maxTurns, stopped, turnTitl
   const { selected, newest, endReady, endSeen, mode, speed, hasBack, hasForward } = playhead;
   const atEnd = selected === 'end';
   const total = Math.max(maxTurns, newest ?? 1);
+  const markCount = stopped ? newest ?? 1 : total;
   const onScreen = typeof selected === 'number' ? selected : newest ?? 0;
   const pending = !endReady && !stopped && (newest ?? 0) < total ? (newest ?? 0) + 1 : null;
   const showLatest = !endSeen && !stopped;
@@ -35,7 +36,8 @@ export function RunPlayBar({ playhead, arrivedTurns, maxTurns, stopped, turnTitl
   const valueText = atEnd ? 'Verdict' : onScreen === 0 ? 'Waiting for turn 1'
     : `Turn ${onScreen} of ${total} on screen${stopped && onScreen === newest ? '. The run stopped here.' : ''}`;
   const buttonLabel = newest !== null && selected !== newest && !endReady ? `Turn ${newest} is in` : 'Latest';
-  const marks: WatchTurn[] = [...Array.from({ length: total }, (_, i) => i + 1), 'end'];
+  const marks: WatchTurn[] = Array.from({ length: markCount }, (_, i) => i + 1);
+  if (!stopped) marks.push('end');
   const received = new Set(arrivedTurns);
   const bar = useRef<HTMLDivElement>(null);
   const line = useRef<HTMLDivElement>(null);
@@ -187,7 +189,7 @@ export function RunPlayBar({ playhead, arrivedTurns, maxTurns, stopped, turnTitl
 
   const selectedIndex = selected === 'end' ? total : (selected ?? 0) - 1;
   const progressStyle = {
-    '--play-turn-count': total,
+    '--play-turn-count': markCount,
     '--play-current-index': selectedIndex,
     '--play-arrived-index': endReady ? total : Math.max(0, (newest ?? 0) - 1),
   } as CSSProperties;
@@ -209,15 +211,16 @@ export function RunPlayBar({ playhead, arrivedTurns, maxTurns, stopped, turnTitl
           aria-valuetext={valueText}
           onKeyDown={event => handleKey(event, true)}
           className={styles.line}
-          data-many={total > 8 || undefined}
+          data-many={markCount > 8 || undefined}
+          data-stopped={stopped || undefined}
           style={progressStyle}
         >
-          <div className={styles.track} aria-hidden="true" data-arrived={newest !== null} />
+          <div className={styles.track} aria-hidden="true" data-arrived={newest !== null} data-end={endReady} />
           {marks.map(position => {
             const end = position === 'end';
             const arrived = end ? endReady : received.has(position);
             const interrupted = stopped && position === newest;
-            const label = end ? 'Verdict' : turnTitle(position);
+            const { label, authored } = end ? { label: 'Verdict', authored: false } : turnTitle(position);
             return <span key={position}
               className={styles.mark}
               data-run-mark={position}
@@ -225,18 +228,19 @@ export function RunPlayBar({ playhead, arrivedTurns, maxTurns, stopped, turnTitl
               data-pending={pending === position}
               data-selected={selected === position}
               data-interrupted={interrupted}
+              data-ai-generated={authored ? 'true' : undefined}
               aria-hidden="true"
               title={interrupted ? `${label}. The run stopped here.` : label}
               onClick={() => pick(position)}
             >
               <span className={styles.point}>{interrupted ? '!' : ''}</span>
               {end ? <span className={styles.endLabel}>Verdict</span>
-                : (total < 100 || position % 10 === 0) && <span className={styles.number} data-run-number>{position}</span>}
+                : (markCount < 100 || position % 10 === 0) && <span className={styles.number} data-run-number>{position}</span>}
             </span>;
           })}
           {selectedIndex >= 0 && <span className={styles.ring} aria-hidden="true" data-end={atEnd} />}
         </div>
-        <span className={styles.compactTurn} data-many={total > 8 || undefined} aria-hidden="true">
+        <span className={styles.compactTurn} data-many={markCount > 8 || undefined} aria-hidden="true">
           {atEnd ? 'Verdict' : onScreen > 0 ? `Turn ${onScreen} of ${total}` : 'Waiting for turn 1'}
         </span>
         <span className="sr-only" aria-live="polite">{newest !== null ? `Turn ${newest} of ${total}` : ''}</span>

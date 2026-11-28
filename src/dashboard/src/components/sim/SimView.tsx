@@ -16,6 +16,7 @@ import { Timeline } from './Timeline';
 import { TurnGrid } from './TurnGrid';
 import { MultiActorTurnGrid } from './MultiActorTurnGrid';
 import { WatchGridPanels } from './WatchGridPanels';
+import { isAiWritten } from '../shared/AiWritten';
 import { PairTurn } from './PairTurn';
 import { hasChoice, pairTurnAt } from './pair-turn';
 import { createReportTurnHref, createWatchPlaceHref, watchPlaceFromHref } from '../../tab-routing';
@@ -193,7 +194,7 @@ export function SimView({ state, playhead, pairTurns, stoppedPair, sseStatus, op
       sideB?.events.find(event => event.turn === number && event.type === 'event_start');
     const when = event?.time === undefined ? '' : `, ${event.time}`;
     const title = typeof event?.data.title === 'string' ? `: ${event.data.title}` : '';
-    return `Turn ${number}${when}${title}`;
+    return { label: `Turn ${number}${when}${title}`, authored: isAiWritten(event?.data, 'title') };
   };
   const data = useMemo(() => pairTurnAt(state, turn), [state, turn]);
   const [firstEvidence, setFirstEvidence] = useState<{ run: string | undefined; turn: number } | null>(null);

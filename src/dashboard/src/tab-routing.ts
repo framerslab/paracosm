@@ -98,6 +98,11 @@ export function requestsSettingsKeyFocus(href: string): boolean {
  */
 export function createSettingsKeyHref(currentHref: string, provider?: string): string {
   const url = new URL(createDashboardTabHref(currentHref, 'settings'));
+  // Preserve the recovery route's tab and field suffix when Watch adds a turn.
+  if (url.searchParams.has('watchTurn')) {
+    url.searchParams.delete('tab');
+    url.searchParams.append('tab', 'settings');
+  }
   url.searchParams.set('focus', provider === 'anthropic' ? 'api-key-anthropic' : 'api-key');
   return url.toString();
 }
