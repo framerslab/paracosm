@@ -70,6 +70,47 @@ function savedRun(scenarioId: string, name: string, leader: string, turns = [1, 
   };
 }
 
+/**
+ * Opens Reports on a saved Mars Genesis run of the scenario's own turns,
+ * with a real kernel snapshot at the end of each turn, so every turn but the
+ * last offers a fork.
+ */
+async function openForkableMarsRun(page: Page, baseURL: string | undefined): Promise<void> {
+  const { id, labels, setup } = marsScenario;
+  const leader = 'Aria Chen';
+  const turns = Array.from({ length: setup.defaultTurns }, (_, index) => index + 1);
+  const run = savedRun(id, labels.name, leader, turns);
+  const kernel = new SimulationKernel(11, leader, [], { startTime: setup.defaultStartTime, scenario: marsScenario });
+  run.results[0].artifact.scenarioExtensions.kernelSnapshotsPerTurn = turns.map(turn => {
+    kernel.advanceTurn(turn, setup.defaultStartTime + turn, marsScenario.hooks?.progressionHook);
+    return kernel.toSnapshot(id);
+  });
+  const fileUrl = `${baseURL}/saved-runs/${id}.json`;
+  await page.route(fileUrl, async route => {
+    await waitForRunConnection(page);
+    await route.fulfill({ json: run });
+  });
+  await page.goto(`/sim?load=${encodeURIComponent(fileUrl)}&autoload=1&tab=reports`);
+}
+
+/** Captures the dialog at the two report widths in both dashboard looks. */
+async function captureForkPictures(page: Page, prefix = ''): Promise<void> {
+  if (!process.env.FORK_EVENT_PICTURES) return;
+  const notifications = page.getByRole('status', { name: 'Notifications' });
+  await expect(notifications.getByRole('button', { name: 'Dismiss', exact: true })).toHaveCount(0);
+  for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 960 }]) {
+    await page.setViewportSize(viewport);
+    for (const look of ['dark', 'light'] as const) {
+      await page.emulateMedia({ colorScheme: look, reducedMotion: 'reduce' });
+      await expect(page.locator('html')).toHaveCSS('color-scheme', look);
+      await page.screenshot({
+        path: `test-pictures/fork-events/${prefix}${viewport.width}-${look}.png`,
+        animations: 'disabled',
+      });
+    }
+  }
+}
+
 test.describe('Scenario per visitor @scenario', () => {
   test("another visitor's switch leaves this page on its own scenario", async ({ browser }) => {
     const contextA = await browser.newContext();
@@ -355,21 +396,7 @@ test.describe('Scenario per visitor @scenario', () => {
   });
 
   test('custom events must name a year the fork will play', async ({ page, baseURL }) => {
-    const { id, labels, setup } = marsScenario;
-    const leader = 'Aria Chen';
-    const turns = Array.from({ length: setup.defaultTurns }, (_, index) => index + 1);
-    const run = savedRun(id, labels.name, leader, turns);
-    const kernel = new SimulationKernel(11, leader, [], { startTime: setup.defaultStartTime, scenario: marsScenario });
-    run.results[0].artifact.scenarioExtensions.kernelSnapshotsPerTurn = turns.map(turn => {
-      kernel.advanceTurn(turn, setup.defaultStartTime + turn, marsScenario.hooks?.progressionHook);
-      return kernel.toSnapshot(id);
-    });
-    const fileUrl = `${baseURL}/saved-runs/${id}.json`;
-    await page.route(fileUrl, async route => {
-      await waitForRunConnection(page);
-      await route.fulfill({ json: run });
-    });
-    await page.goto(`/sim?load=${encodeURIComponent(fileUrl)}&autoload=1&tab=reports`);
+    await openForkableMarsRun(page, baseURL);
     await page.getByRole('button', { name: 'Fork at Year 3' }).click();
 
     const dialog = page.getByRole('dialog', { name: 'Fork at Year 3' });
@@ -385,25 +412,127 @@ test.describe('Scenario per visitor @scenario', () => {
     await expect(events).toHaveAccessibleDescription(`Fork is disabled until you fix or remove these lines. ${message}`);
     await expect(fork).toBeDisabled();
 
-    if (process.env.FORK_EVENT_PICTURES) {
-      const notifications = page.getByRole('status', { name: 'Notifications' });
-      await expect(notifications.getByRole('button', { name: 'Dismiss', exact: true })).toHaveCount(0);
-      for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 960 }]) {
-        await page.setViewportSize(viewport);
-        for (const look of ['dark', 'light'] as const) {
-          await page.emulateMedia({ colorScheme: look, reducedMotion: 'reduce' });
-          await expect(page.locator('html')).toHaveCSS('color-scheme', look);
-          await page.screenshot({
-            path: `test-pictures/fork-events/${viewport.width}-${look}.png`,
-            animations: 'disabled',
-          });
-        }
-      }
-    }
+    await captureForkPictures(page);
 
     await events.fill(`4: ${supplyDrop}`);
     await expect(status).toHaveCount(0);
     await expect(fork).toBeEnabled();
+  });
+
+  test('on the hosted demo, custom events must fit the turns and the one event a turn the host pays for', async ({ page, baseURL }) => {
+    // Reports posts a fork with no provider key, so on the hosted demo the
+    // host pays: /setup ends the fork at the demo's turn cap and keeps the
+    // first custom event of each turn. This server reports a cap one turn
+    // under Mars Genesis's own turns.
+    const cap = marsScenario.setup.defaultTurns - 1;
+    let answerLimits!: () => void;
+    const limitsHeld = new Promise<void>(resolve => { answerLimits = resolve; });
+    await page.route('**/admin-config', async route => {
+      await limitsHeld;
+      const response = await route.fetch();
+      const body = await response.json() as { demoCaps?: Record<string, unknown> };
+      await route.fulfill({ response, json: { ...body, hostedDemo: true, demoCaps: { ...body.demoCaps, maxTurns: cap } } });
+    });
+    await openForkableMarsRun(page, baseURL);
+    const openFork = page.getByRole('button', { name: 'Fork at Year 3' });
+    await expect(openFork).toBeDisabled();
+    await expect(openFork).toHaveAccessibleDescription("Checking this demo's limits.");
+    answerLimits();
+    await openFork.click();
+
+    const dialog = page.getByRole('dialog', { name: 'Fork at Year 3' });
+    await dialog.getByText('Advanced: custom events', { exact: true }).click();
+    const events = dialog.getByRole('textbox');
+    const fork = dialog.getByRole('button', { name: 'Fork', exact: true });
+    const lead = 'Fork is disabled until you fix or remove these lines.';
+
+    await events.fill('4: Supply drop: Relief arrives.\n4: Dust storm: Solar output drops.');
+    const second = 'Line 2 is a second event for Year 4. This fork keeps only the first, line 1.';
+    await expect(dialog.getByRole('status').filter({ hasText: second })).toBeVisible();
+    await expect(events).toHaveAccessibleDescription(`${lead} ${second}`);
+    await expect(fork).toBeDisabled();
+
+    await events.fill(`${cap + 1}: Arrival: The next crew lands.`);
+    const late = `Line 1 is for Year ${cap + 1}. This fork ends at Year ${cap}.`;
+    await expect(dialog.getByRole('status').filter({ hasText: late })).toBeVisible();
+    await expect(fork).toBeDisabled();
+
+    await events.fill(`4: Supply drop: Relief arrives.\n${cap}: Arrival: The next crew lands.`);
+    await expect(dialog.getByRole('status').filter({ hasText: lead })).toHaveCount(0);
+    await expect(fork).toBeEnabled();
+
+    // No fork at the cap's last turn, where the host's run has nothing left to play.
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByRole('button', { name: `Fork at Year ${cap - 1}` }).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: `Fork at Year ${cap}` })).toHaveCount(0);
+  });
+
+  test('Fork stays unavailable while failed limits are retried', async ({ page, baseURL }) => {
+    let requests = 0;
+    let answerRetry!: () => void;
+    const retryHeld = new Promise<void>(resolve => { answerRetry = resolve; });
+    await page.route('**/admin-config', async route => {
+      if (++requests === 1) {
+        await route.fulfill({ status: 503 });
+        return;
+      }
+      await retryHeld;
+      await route.continue();
+    });
+
+    await openForkableMarsRun(page, baseURL);
+    const openFork = page.getByRole('button', { name: 'Fork at Year 3' });
+    await expect(openFork).toBeDisabled();
+    await expect(openFork).toHaveAccessibleDescription("Couldn't check this demo's limits. Retrying.");
+    await expect.poll(() => requests).toBeGreaterThan(1);
+    await expect(openFork).toBeDisabled();
+    answerRetry();
+    await expect(openFork).toBeEnabled();
+  });
+
+  test('an open fork checks again and blocks a newly final turn', async ({ page, baseURL }) => {
+    const finalTurn = marsScenario.setup.defaultTurns;
+    const cap = finalTurn - 1;
+    let requests = 0;
+    let answerLimits!: () => void;
+    const limitsHeld = new Promise<void>(resolve => { answerLimits = resolve; });
+    await page.route('**/admin-config', async route => {
+      if (++requests === 1) {
+        await route.continue();
+        return;
+      }
+      await limitsHeld;
+      const response = await route.fetch();
+      const body = await response.json() as { demoCaps?: Record<string, unknown> };
+      await route.fulfill({ response, json: { ...body, hostedDemo: true, demoCaps: { ...body.demoCaps, maxTurns: cap } } });
+    });
+
+    await openForkableMarsRun(page, baseURL);
+    await page.getByRole('button', { name: `Fork at Year ${cap}` }).click();
+
+    const dialog = page.getByRole('dialog', { name: `Fork at Year ${cap}` });
+    const fork = dialog.getByRole('button', { name: 'Fork', exact: true });
+    await expect(fork).toBeDisabled();
+    await expect(fork).toHaveAccessibleDescription("Checking this demo's limits.");
+    await captureForkPictures(page, 'checking-');
+
+    await dialog.getByText('Advanced: custom events', { exact: true }).click();
+    const events = dialog.getByRole('textbox');
+    await events.fill(`${finalTurn}: Supply drop: Relief arrives.`);
+    answerLimits();
+
+    await expect(events).toHaveAccessibleDescription(
+      `Fork is disabled until you fix or remove these lines. Line 1 is for Year ${finalTurn}. This fork ends at Year ${cap}.`,
+    );
+    await events.clear();
+    await expect(fork).toBeDisabled();
+    await expect(fork).toHaveAccessibleDescription(`No turns remain after Year ${cap}.`);
+
+    await dialog.getByRole('button', { name: 'Close fork modal' }).click();
+    await expect(page.getByRole('button', { name: `Fork at Year ${cap}` })).toHaveCount(0);
+    await page.getByRole('button', { name: `Fork at Year ${cap - 1}` }).click();
+    await expect(page.getByRole('dialog').getByRole('button', { name: 'Fork', exact: true })).toBeEnabled();
   });
 
   test('a run loaded from a file before the page knows its scenario stays once it does', async ({ page, baseURL }) => {

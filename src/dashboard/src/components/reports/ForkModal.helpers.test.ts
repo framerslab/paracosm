@@ -4,7 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { resolveLeaderPresets, estimateForkCost, parseCustomEvents, inspectCustomEventLines, canForkAtTurn, forkFinalTurn, forkParentForPost } from './ForkModal.helpers.js';
+import { resolveLeaderPresets, estimateForkCost, parseCustomEvents, inspectCustomEventLines, canForkAtTurn, forkFinalTurn, forkRunLimits, forkParentForPost } from './ForkModal.helpers.js';
 import { marsScenario } from '../../../../engine/scenarios/index.js';
 import type { ActorConfig } from '../../../../engine/types.js';
 
@@ -167,6 +167,44 @@ test('forkFinalTurn: a forked run counts its turns from its snapshots', () => {
   assert.equal(canForkAtTurn(child, 4), true);
   assert.equal(canForkAtTurn(child, 5), true);
   assert.equal(canForkAtTurn(child, 6), false);
+});
+
+test('forkRunLimits: a fork on the hosted demo\'s keys ends at the turn cap and keeps one custom event a turn', () => {
+  // Reports posts a fork with no provider key, so on the hosted demo the
+  // host pays and /setup ends the fork at the demo's turn cap and keeps the
+  // first custom event of each turn (applyDemoCaps).
+  const turns = Array.from({ length: marsScenario.setup.defaultTurns }, (_, index) => index + 1);
+  const parent = {
+    trajectory: { timepoints: turns.map(t => ({ t })) },
+    scenarioExtensions: { kernelSnapshotsPerTurn: turns.map(turn => ({ turn })) },
+  };
+  const finalTurn = marsScenario.setup.defaultTurns;
+  const cap = finalTurn - 1;
+  const hosted = { hostedDemo: true, demoCaps: { maxTurns: cap } };
+
+  assert.deepEqual(forkRunLimits(parent, hosted), { finalTurn: cap, onePerTurn: true });
+  assert.deepEqual(forkRunLimits(parent, { hostedDemo: false, demoCaps: { maxTurns: cap } }), { finalTurn, onePerTurn: false });
+  assert.deepEqual(forkRunLimits(parent), { finalTurn, onePerTurn: false });
+  assert.deepEqual(forkRunLimits(parent, { hostedDemo: true, demoCaps: { maxTurns: finalTurn + 4 } }), { finalTurn, onePerTurn: true });
+  assert.equal(canForkAtTurn(parent, cap - 1, hosted), true);
+  assert.equal(canForkAtTurn(parent, cap, hosted), false);
+  assert.equal(canForkAtTurn(parent, cap), true);
+
+  const input = [
+    '4: Supply drop: Relief arrives with 3 months of food.',
+    '4: Dust storm: Solar output drops.',
+    `${cap}: Arrival: The next crew lands.`,
+    `${cap + 1}: Handover: The new crew takes over.`,
+  ].join('\n');
+  const { finalTurn: hostedFinal, onePerTurn } = forkRunLimits(parent, hosted);
+  assert.deepEqual(inspectCustomEventLines(input, 3, hostedFinal, { onePerTurn }), [
+    { lineNumber: 1, status: 'used', event: { turn: 4, title: 'Supply drop', description: 'Relief arrives with 3 months of food.' } },
+    { lineNumber: 2, status: 'same-turn', turn: 4, firstLineNumber: 1 },
+    { lineNumber: 3, status: 'used', event: { turn: cap, title: 'Arrival', description: 'The next crew lands.' } },
+    { lineNumber: 4, status: 'after-fork', turn: cap + 1 },
+  ]);
+  // Off the host's keys a turn keeps every event, through the parent's final turn.
+  assert.deepEqual(inspectCustomEventLines(input, 3, finalTurn).map(line => line.status), ['used', 'used', 'used', 'used']);
 });
 
 test('forkParentForPost: the fork posts the end-of-turn snapshots it branches from and leaves out the ones only replay reads', () => {

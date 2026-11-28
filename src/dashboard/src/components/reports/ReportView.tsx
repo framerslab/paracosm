@@ -1,5 +1,5 @@
 import { AiWritten, isAiWritten, isAiWrittenPassage } from '../shared/AiWritten';
-import { useMemo, useEffect, useRef, useState, useCallback, type CSSProperties, type ReactNode } from 'react';
+import { useMemo, useEffect, useId, useRef, useState, useCallback, type CSSProperties, type ReactNode } from 'react';
 import type { GameState } from '../../hooks/useGameState';
 import { useCitationContext } from '../../hooks/useCitationRegistry';
 import { useToolContext } from '../../hooks/useToolRegistry';
@@ -7,7 +7,8 @@ import { useBranchesContext } from '../branches/BranchesContext';
 import { useDashboardNavigation, useRunStart, useScenarioContext, useScenarioReady } from '../../App';
 import { useScenarioLabels } from '../../hooks/useScenarioLabels';
 import { ForkModal, type ForkConfirmPayload } from './ForkModal';
-import { canForkAtTurn, forkFinalTurn, forkParentForPost } from './ForkModal.helpers';
+import { canForkAtTurn, forkFinalTurn, forkParentForPost, forkRunLimits } from './ForkModal.helpers';
+import { useServerFactsIfProvided } from '../quickstart/first-screen/useServerFacts';
 import forkStyles from './ForkModal.module.scss';
 import { Badge } from '../shared/Badge';
 import { CitationPills } from '../shared/CitationPills';
@@ -246,15 +247,38 @@ export function ReportView({ state, verdict, shownRun, reportSections }: ReportV
   // is not forked from this page: its fork would never show here.
   const parentScenario = parentArtifact?.metadata?.scenario;
   const parentInOtherScenario = typeof parentScenario?.id === 'string' && parentScenario.id !== pageScenario.id;
-  const canFork = useCallback(
-    (turnNum: number): boolean => {
-      if (!parentArtifact) return false;
-      if (state.isRunning) return false;
-      if (!pageScenarioReady || parentInOtherScenario) return false;
-      // No fork at the final turn: nothing is left to run after it.
-      return canForkAtTurn(parentArtifact, turnNum);
-    },
-    [parentArtifact, state.isRunning, pageScenarioReady, parentInOtherScenario],
+  // The fork posts no provider key, so on the hosted demo it runs on the
+  // host's keys under the demo caps (forkRunLimits).
+  const serverFacts = useServerFactsIfProvided();
+  const forkServer = serverFacts?.adminConfig;
+  const forkLimitsKnown = forkServer?.status === 'ready' && (
+    forkServer.hostedDemo === false || (forkServer.hostedDemo === true && forkServer.demoCaps?.maxTurns !== undefined)
+  );
+  const forkLimits = parentArtifact && forkLimitsKnown ? forkRunLimits(parentArtifact, forkServer) : undefined;
+  const forkLimitsMessage = forkLimitsKnown ? undefined : forkServer?.status === 'loading'
+    ? "Checking this demo's limits."
+    : forkServer?.status === 'error' ? "Couldn't check this demo's limits. Retrying."
+      : "Couldn't check this demo's limits. Reload the page to retry.";
+  const forkLimitsMessageId = useId();
+  const showsForkControl = (turnNum: number) => Boolean(
+    parentArtifact && !state.isRunning && pageScenarioReady && !parentInOtherScenario
+    && canForkAtTurn(parentArtifact, turnNum, forkLimitsKnown ? forkServer : undefined),
+  );
+  const renderForkButton = (turnNum: number) => showsForkControl(turnNum) && (
+    <button
+      type="button"
+      className={forkStyles.forkButton}
+      disabled={!forkLimits}
+      aria-describedby={forkLimitsMessage ? forkLimitsMessageId : undefined}
+      aria-label={`Fork at ${labels.time} ${turnNum}`}
+      onClick={() => {
+        if (!forkLimits) return;
+        serverFacts?.refreshAdminConfig();
+        setForkModalAtTurn(turnNum);
+      }}
+    >
+      &#x21B3; Fork at {labels.Time} {turnNum}
+    </button>
   );
   const handleForkConfirm = useCallback(
     async (payload: ForkConfirmPayload) => {
@@ -760,6 +784,9 @@ export function ReportView({ state, verdict, shownRun, reportSections }: ReportV
         />
       )}
 
+      {forkLimitsMessage && (isNActor ? nActorTurnList : turns).some(([turnNum]) => showsForkControl(turnNum)) && (
+        <p id={forkLimitsMessageId} role="status" className={styles.forkNotice}>{forkLimitsMessage}</p>
+      )}
       {/* Turn-by-turn: split rendering between pair-mode (N=2) and the
           N-actor horizontally-scrolling view (N>=3). Pair mode keeps
           the rich DiffBadge + TurnSharedFooter layout the dashboard has
@@ -799,16 +826,7 @@ export function ReportView({ state, verdict, shownRun, reportSections }: ReportV
                 <span className={[styles.divergenceFlag, diverged ? styles.diverged : ''].filter(Boolean).join(' ')}>
                   {diverged ? 'DIVERGENT' : 'SHARED'}
                 </span>
-                {canFork(turnNum) && (
-                  <button
-                    type="button"
-                    className={forkStyles.forkButton}
-                    onClick={() => setForkModalAtTurn(turnNum)}
-                    aria-label={`Fork at ${labels.time} ${turnNum}`}
-                  >
-                    &#x21B3; Fork at {labels.Time} {turnNum}
-                  </button>
-                )}
+                {renderForkButton(turnNum)}
               </div>
             </div>
 
@@ -871,16 +889,7 @@ export function ReportView({ state, verdict, shownRun, reportSections }: ReportV
                 <span className={[styles.divergenceFlag, diverged ? styles.diverged : ''].filter(Boolean).join(' ')}>
                   {diverged ? 'DIVERGENT' : 'SHARED'}
                 </span>
-                {canFork(turnNum) && (
-                  <button
-                    type="button"
-                    className={forkStyles.forkButton}
-                    onClick={() => setForkModalAtTurn(turnNum)}
-                    aria-label={`Fork at ${labels.time} ${turnNum}`}
-                  >
-                    &#x21B3; Fork at {labels.Time} {turnNum}
-                  </button>
-                )}
+                {renderForkButton(turnNum)}
               </div>
             </div>
 
@@ -1028,7 +1037,9 @@ export function ReportView({ state, verdict, shownRun, reportSections }: ReportV
         <ForkModal
           parentArtifact={parentArtifact}
           atTurn={forkModalAtTurn}
-          maxTurns={forkFinalTurn(parentArtifact)}
+          maxTurns={forkLimits?.finalTurn}
+          onePerTurn={forkLimits?.onePerTurn}
+          limitsMessage={forkLimitsMessage}
           costPreset="economy"
           provider="openai"
           onConfirm={handleForkConfirm}
