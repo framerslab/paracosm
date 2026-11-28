@@ -429,9 +429,14 @@ test('the run identifies its payer and stops only its own run', async ({ browser
   let visitor = 100 + info.retry * 12;
   for (const [origin, width, look, payer, own] of [
     [host, 390, 'dark', 'today’s free run', false],
+    [host, 390, 'light', 'today’s free run', false],
+    [host, 1440, 'dark', 'today’s free run', false],
     [host, 1440, 'light', 'today’s free run', false],
     ['http://127.0.0.1:3477', 1440, 'dark', 'on this server’s API keys', false],
     [host, 390, 'light', 'on your own API key', true],
+    [host, 390, 'dark', 'on your own API key', true],
+    [host, 1440, 'light', 'on your own API key', true],
+    [host, 1440, 'dark', 'on your own API key', true],
   ] as const) {
     const { context, page, runKey } = await openPair(browser, origin, width, look, visitor++, 'reduce', own);
     try {
@@ -478,8 +483,11 @@ test('the run identifies its payer and stops only its own run', async ({ browser
       await expect(details).toContainText('Started');
       await expect(details.getByRole('button', { name: 'Close' })).toBeFocused();
       await details.getByRole('button', { name: 'Close' }).click();
+      const stopOpener = width < 600 && !own ? menu : stop;
       await (await ask()).click();
+      await expect(stopOpener).toBeFocused();
       await (await ask()).press('Escape');
+      await expect(stopOpener).toBeFocused();
       await ask();
       if (payer === 'today’s free run') await expect(page.getByText('Stopping keeps this free run used.')).toBeVisible();
       await capture(page, 'after', `stop-confirm-${width}-${look}-${own ? 'own' : payer === 'today’s free run' ? 'host' : 'server'}`);
@@ -515,6 +523,14 @@ test('the run identifies its payer and stops only its own run', async ({ browser
   const { page, context, runKey } = await openPair(browser, host, 1440, 'dark', visitor++);
   try {
     const stop = page.getByRole('button', { name: 'Stop the run', exact: true });
+    await release(page, runKey, 'crisis', 1);
+    await release(page, runKey, 'decisions', 1);
+    await expect(page.getByRole('slider', { name: 'Run line' })).toHaveAttribute('aria-valuenow', '1');
+    await context.setOffline(true);
+    await expect(page.getByText('You are offline. Turns that arrive while you are away show when you are back.')).toBeVisible();
+    await expect(page.getByRole('slider', { name: 'Run line' })).toHaveAttribute('aria-valuenow', '1');
+    await context.setOffline(false);
+    await expect(page.getByText('Turn 2 is on its way.')).toBeVisible();
     for (const [status, body, message] of [
       [403, {}, 'Stop did not reach the server.'],
       [200, { cleared: true, runKey: 'wrong-run' }, 'Stop did not reach the server.'],
