@@ -61,6 +61,15 @@ async function storedSessionId(request: APIRequestContext): Promise<string> {
   return sessions[0].id;
 }
 
+/** Wait for the stored pair's completion even when it has no verdict frame. */
+async function expectRecordedEnd(page: Page): Promise<void> {
+  const line = page.getByRole('slider', { name: 'Run line' });
+  await expect(line).toHaveAttribute('aria-valuenow', '2', { timeout: 30_000 });
+  await expect(page.getByRole('status', { name: /^Simulation status: Complete\./ })).toBeVisible();
+  await expect(line.locator('[data-run-mark="end"]')).toHaveAttribute('data-selected', 'true');
+  await expect(line).toHaveAttribute('aria-valuetext', 'Verdict');
+}
+
 async function useLook(page: Page, look: 'light' | 'dark'): Promise<void> {
   await page.addInitScript((t) => { window.localStorage.setItem('paracosm-theme', t); }, look);
 }
@@ -419,8 +428,7 @@ test.describe('the other copy keys and the Library\'s address', () => {
       if (/clipboard|writeText/i.test(error.message)) clipboardErrors.push(error.message);
     });
     await page.goto(`/sim?replay=${encodeURIComponent(id)}&tab=sim`);
-    await expect(page.getByRole('slider', { name: 'Run line' })).toHaveAttribute('aria-valuenow', '2', { timeout: 30_000 });
-    await expect(page.getByRole('slider', { name: 'Run line' })).toHaveAttribute('aria-valuetext', 'Verdict');
+    await expectRecordedEnd(page);
     await page.getByRole('button', { name: 'Open run actions menu' }).click();
     await page.getByRole('menuitem', { name: 'Copy', exact: true }).click();
 
@@ -538,8 +546,7 @@ test.describe('the other copy keys and the Library\'s address', () => {
   test('a verdict the visitor collapsed stays collapsed when Exit Replay connects the live feed', async ({ page, request }) => {
     const id = await storedSessionId(request);
     await page.goto(`/sim?replay=${encodeURIComponent(id)}&tab=sim`);
-    await expect(page.getByRole('slider', { name: 'Run line' })).toHaveAttribute('aria-valuenow', '2', { timeout: 30_000 });
-    await expect(page.getByRole('slider', { name: 'Run line' })).toHaveAttribute('aria-valuetext', 'Verdict');
+    await expectRecordedEnd(page);
     await dropSavedRun(page, SAVED_RUN_WITH_VERDICT);
     await page.getByRole('button', { name: 'Collapse verdict' }).click();
     await expect(page.getByRole('button', { name: 'Expand verdict' })).toBeVisible();
