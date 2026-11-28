@@ -11,10 +11,10 @@ const pictures = 'test-pictures/run-screen-a';
 test.skip(!!process.env.PARACOSM_E2E_BASE_URL, 'The pair screen uses its own fixture server.');
 test.describe.configure({ mode: 'serial' });
 
-async function openPair(browser: Browser, origin: string, width: number, look: string, visitor: number) {
+async function openPair(browser: Browser, origin: string, width: number, look: string, visitor: number, reducedMotion: 'reduce' | 'no-preference' = 'reduce') {
   const context = await browser.newContext({
     baseURL: origin, viewport: { width, height: width === 390 ? 844 : 900 },
-    deviceScaleFactor: 2, reducedMotion: 'reduce',
+    deviceScaleFactor: 2, reducedMotion,
     extraHTTPHeaders: { 'x-real-ip': `192.0.2.${visitor}` },
   });
   await context.addInitScript(theme => localStorage.setItem('paracosm-theme', theme), look);
@@ -223,7 +223,7 @@ async function loadPairRecording(page: Page, turns: number, stopped = false) {
 
 test('one playhead follows the pair from Watch into Viz', async ({ browser }, info) => {
   test.setTimeout(240_000);
-  const { page, context, runKey } = await openPair(browser, host, 1440, 'dark', 40 + info.retry);
+  const { page, context, runKey } = await openPair(browser, host, 1440, 'dark', 40 + info.retry, 'no-preference');
   const watch = page.locator('#tabpanel-sim');
   const line = page.getByRole('slider', { name: 'Run line' });
   const turn = (value: number) => expect(line).toHaveAttribute('aria-valuenow', String(value));
@@ -256,10 +256,15 @@ test('one playhead follows the pair from Watch into Viz', async ({ browser }, in
     await key('Pause').click();
     await expect(key('Play')).toBeVisible();
     await page.evaluate(() => window.scrollTo(0, 0));
-    await capture(page, 'after', 'held-1440-dark');
+    const canvas = fields(watch, 3).first();
+    const frame = () => canvas.evaluate(element => (element as HTMLCanvasElement).toDataURL());
+    const pausedFrame = await frame();
     await sendTurn(4);
     await turn(3);
     await expect(key('Turn 4 is in')).toBeEnabled();
+    expect(await frame()).toBe(pausedFrame);
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await capture(page, 'after', 'held-1440-dark');
     await expect(watch.getByText('Turn 3: Ration the water for the greenhouse.', { exact: true }).first()).toBeVisible();
     await expect(fields(watch, 3)).toHaveCount(2);
     await expect(watch.getByRole('region', { name: 'Leader statistics' }).getByText('430', { exact: true })).toBeVisible();

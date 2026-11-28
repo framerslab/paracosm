@@ -130,7 +130,7 @@ test('Watch playback measures explicit actions with the fixed vocabulary', () =>
     const page = browser(choices);
     sendEvent('watch_play', { key: 'speed_half' }, page.window);
     sendEvent('watch_turn_pick', {}, page.window);
-    sendEvent('watch_turn_pick', { turn: 3 }, page.window);
+    sendEvent('watch_turn_pick', { turn: '3' }, page.window);
     sendEvent('watch_play', { key: 'auto' }, page.window);
     assert.deepEqual(page.posts, []);
     assert.deepEqual(page.recordings, []);
