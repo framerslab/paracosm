@@ -212,6 +212,16 @@ function toneColor(tone: 'pos' | 'neg' | 'neutral' | undefined): string {
 }
 
 export function ReportView({ state, verdict, shownRun, reportSections }: ReportViewProps) {
+  const focusedTurn = useRef<string | null>(null);
+  useEffect(() => {
+    const hash = window.location.hash.slice(1);
+    if (!/^turn-\d+$/.test(hash) || focusedTurn.current === hash) return;
+    const section = document.getElementById(hash);
+    if (!section) return;
+    focusedTurn.current = hash;
+    section.focus();
+    section.scrollIntoView({ block: 'start' });
+  }, [state]);
   const citationRegistry = useCitationContext();
   const toolRegistry = useToolContext();
   // User's expand/collapse preference for References + Toolbox in this tab,
@@ -802,6 +812,7 @@ export function ReportView({ state, verdict, shownRun, reportSections }: ReportV
           <section
             key={turnNum}
             id={`turn-${turnNum}`}
+            tabIndex={-1}
             className={[styles.turnSection, diverged ? styles.diverged : ''].filter(Boolean).join(' ')}
           >
             <div className={styles.turnHeader}>
@@ -864,6 +875,7 @@ export function ReportView({ state, verdict, shownRun, reportSections }: ReportV
           <section
             key={turnNum}
             id={`turn-${turnNum}`}
+            tabIndex={-1}
             className={[styles.turnSection, diverged ? styles.diverged : ''].filter(Boolean).join(' ')}
           >
             <div className={styles.turnHeader}>

@@ -1,3 +1,4 @@
+import { RUN_SPEEDS, type RunPlayhead, type RunSpeed } from '../../hooks/useRunPlayhead';
 import { useRunExportProvenance } from '../shared/RunReportDownloads';
 import { markRunPng } from '../../exports/media-metadata';
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
@@ -83,6 +84,8 @@ interface HexacoShape { O: number; C: number; E: number; A: number; Em: number; 
 
 interface SwarmVizProps {
   isReplay: boolean;
+  playhead?: RunPlayhead;
+  stoppedPair?: boolean;
   state: GameState;
   onNavigateToChat?: (colonistName: string) => void;
 }
@@ -128,12 +131,12 @@ function panelLaidOut(root: HTMLElement, body: HTMLElement | null) {
 }
 
 /**
- * VIZ tab composition root. Owns playhead state, grid mode, palette,
+ * VIZ tab composition root. Uses the shared pair playhead and owns grid mode, palette,
  * chronicle filter, focused-side, and timelapse recording. Delegates
  * everything visual to LivingSwarmGrid (canvas + HUD + popovers) and
  * the strip widgets (TurnBanner, TimelineSparkline, EventChronicle).
  */
-export function SwarmViz({ state, isReplay, onNavigateToChat }: SwarmVizProps) {
+export function SwarmViz({ state, isReplay, playhead, stoppedPair = false, onNavigateToChat }: SwarmVizProps) {
   const provenance = useRunExportProvenance();
   const snapshotMap = useVizSnapshots(state);
   // Cohort-aware focus-pair: SwarmViz's living-swarm grid is built for
@@ -168,10 +171,23 @@ export function SwarmViz({ state, isReplay, onNavigateToChat }: SwarmVizProps) {
   useEffect(() => {
     setVizMode(isCohort ? 'cohort' : 'pair');
   }, [isCohort]);
-  const maxTurn = Math.max(snapsA.length, snapsB.length);
-  const [currentTurn, setCurrentTurn] = useState(0);
-  const [playing, setPlaying] = useState(false);
-  const [speed, setSpeed] = useState(1);
+  const maxTurn = playhead?.turns.length ?? Math.max(snapsA.length, snapsB.length);
+  const [localTurn, setCurrentTurn] = useState(0);
+  const [localPlaying, setPlaying] = useState(false);
+  const [localSpeed, setLocalSpeed] = useState(1);
+  const recordedTurn = typeof playhead?.selected === 'number' ? playhead.selected : playhead?.newest;
+  const currentTurn = playhead && recordedTurn != null ? Math.max(0, playhead.turns.indexOf(recordedTurn)) : localTurn;
+  const playing = playhead ? playhead.mode !== 'hold' && playhead.selected !== 'end' &&
+    (!stoppedPair || playhead.mode === 'replay') : localPlaying;
+  const speed = playhead?.speed ?? localSpeed;
+  // Scrubbing in Viz retains the colony's turn transition. An explicit
+  // Pause shared from either tab holds the grids on the selected frame.
+  const paused = playhead?.paused || stoppedPair && !playing;
+  const sharedPlayback = playhead !== undefined;
+  const setSpeed = (next: number) => {
+    if (playhead && (RUN_SPEEDS as readonly number[]).includes(next)) playhead.setSpeed(next as RunSpeed);
+    else if (!playhead) setLocalSpeed(next);
+  };
 
   // Grid mode (new living-colony grid). Shared across both leaders so
   // tabs toggle in lockstep. Persisted to localStorage so the user's
@@ -197,12 +213,12 @@ export function SwarmViz({ state, isReplay, onNavigateToChat }: SwarmVizProps) {
   useEffect(() => {
     const prev = prevMaxTurnRef.current;
     prevMaxTurnRef.current = maxTurn;
-    if (maxTurn > prev && !playing) setCurrentTurn(maxTurn - 1);
-  }, [maxTurn, playing]);
+    if (!sharedPlayback && maxTurn > prev && !localPlaying) setCurrentTurn(maxTurn - 1);
+  }, [maxTurn, localPlaying, sharedPlayback]);
 
   useEffect(() => {
-    if (!playing) return;
-    const interval = 2000 / speed;
+    if (!localPlaying || sharedPlayback) return;
+    const interval = 2000 / localSpeed;
     timerRef.current = window.setInterval(() => {
       setCurrentTurn(prev => {
         if (prev >= maxTurn - 1) {
@@ -213,30 +229,38 @@ export function SwarmViz({ state, isReplay, onNavigateToChat }: SwarmVizProps) {
       });
     }, interval);
     return () => clearInterval(timerRef.current);
-  }, [playing, speed, maxTurn]);
+  }, [localPlaying, localSpeed, maxTurn, sharedPlayback]);
 
   const handlePlayPause = useCallback(() => {
+    if (playhead) {
+      if (stoppedPair && !playing && currentTurn === maxTurn - 1) playhead.restart();
+      else playhead.toggle();
+      return;
+    }
     if (maxTurn <= 1) return;
     setPlaying(p => {
       if (!p && currentTurn >= maxTurn - 1) setCurrentTurn(0);
       return !p;
     });
-  }, [currentTurn, maxTurn]);
+  }, [currentTurn, maxTurn, playhead, playing, stoppedPair]);
 
+  // Viz exposes indices to its existing controls. Shared playback uses the
+  // recorded turn number, even when one side skipped a snapshot.
+  const handleTurnChange = useCallback((index: number) => {
+    if (playhead) {
+      const turn = playhead.turns[index];
+      if (turn !== undefined) playhead.select(turn, false);
+      return;
+    }
+    setPlaying(false);
+    setCurrentTurn(index);
+  }, [playhead]);
   const handleStepBack = useCallback(() => {
-    setPlaying(false);
-    setCurrentTurn(t => Math.max(0, t - 1));
-  }, []);
-
+    if (currentTurn > 0) handleTurnChange(currentTurn - 1);
+  }, [currentTurn, handleTurnChange]);
   const handleStepForward = useCallback(() => {
-    setPlaying(false);
-    setCurrentTurn(t => Math.min(maxTurn - 1, t + 1));
-  }, [maxTurn]);
-
-  const handleTurnChange = useCallback((turn: number) => {
-    setPlaying(false);
-    setCurrentTurn(turn);
-  }, []);
+    if (currentTurn < maxTurn - 1) handleTurnChange(currentTurn + 1);
+  }, [currentTurn, handleTurnChange, maxTurn]);
 
   // Cross-tab nav: switch to Reports and scroll to the given turn's
   // detail section. Fired by the chronicle strip on shift+click so
@@ -561,8 +585,8 @@ export function SwarmViz({ state, isReplay, onNavigateToChat }: SwarmVizProps) {
   // variable referenced by any hook's deps array MUST appear above the
   // hook. React component scope is one giant `let` block after
   // minification, so forward refs are runtime errors not parse errors.
-  const snapA = snapsA[currentTurn] ?? snapsA[snapsA.length - 1];
-  const snapB = snapsB[currentTurn] ?? snapsB[snapsB.length - 1];
+  const snapA = playhead ? snapsA.findLast(snap => snap.turn <= (recordedTurn ?? 0)) : snapsA[currentTurn] ?? snapsA.at(-1);
+  const snapB = playhead ? snapsB.findLast(snap => snap.turn <= (recordedTurn ?? 0)) : snapsB[currentTurn] ?? snapsB.at(-1);
   const snapATurn = snapA?.turn ?? 0;
   const snapBTurn = snapB?.turn ?? 0;
   const defaultPreset = scenario.presets.find(p => p.id === 'default');
@@ -736,7 +760,6 @@ export function SwarmViz({ state, isReplay, onNavigateToChat }: SwarmVizProps) {
     );
   }, [currentTurn, provenance]);
   useEffect(() => {
-    const useNewGridFlag = import.meta.env.VITE_NEW_GRID !== '0';
     const onKey = (e: KeyboardEvent) => {
       const target = e.target instanceof Element ? e.target : null;
       const tag = target?.tagName;
@@ -752,8 +775,12 @@ export function SwarmViz({ state, isReplay, onNavigateToChat }: SwarmVizProps) {
       if (helpOpen && e.key !== 'Escape' && !helpKey) return;
       // Space presses the control that holds focus, as it does on any page.
       if ((e.key === ' ' || e.key === 'Spacebar') && target?.closest(PRESSABLE)) return;
+      if (e.defaultPrevented || e.altKey || e.metaKey || e.ctrlKey) return;
+      if (sharedPlayback && ['ArrowLeft', 'ArrowRight', 'End', ' '].includes(e.key) &&
+        target?.closest(PRESSABLE + ', [contenteditable], [role="tablist"], [data-testid^="living-colony-grid"]')) return;
       if (e.key === 'ArrowLeft') { e.preventDefault(); handleStepBack(); }
       else if (e.key === 'ArrowRight') { e.preventDefault(); handleStepForward(); }
+      else if (e.key === 'End' && playhead) { e.preventDefault(); playhead.latest(); }
       else if (e.key === ' ' || e.key === 'Spacebar') { e.preventDefault(); handlePlayPause(); }
       else if (e.key === '?' || (e.shiftKey && e.key === '/')) { e.preventDefault(); setHelpOpen(h => !h); }
       else if (e.key === 'Escape' && helpOpen) { e.preventDefault(); setHelpOpen(false); }
@@ -765,7 +792,7 @@ export function SwarmViz({ state, isReplay, onNavigateToChat }: SwarmVizProps) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [handleStepBack, handleStepForward, handlePlayPause, helpOpen, setGridMode]);
+  }, [handleStepBack, handleStepForward, handlePlayPause, helpOpen, playhead, setGridMode, sharedPlayback]);
 
   // Per-side snapshot resolution with lag tolerance. Two leaders run in
   // parallel via Promise.all, but one side can lag by 10-30 seconds
@@ -1050,7 +1077,7 @@ export function SwarmViz({ state, isReplay, onNavigateToChat }: SwarmVizProps) {
 
   // Keep the same Viz content mounted while the first snapshots arrive.
   // The threshold region must already exist when its first alert is added.
-  const waitingForReplay = isReplay && maxTurn === 0;
+  const waitingForReplay = isReplay && snapsA.length === 0 && snapsB.length === 0;
   const emptyState = (
     <div className={styles.empty} role={state.isRunning || waitingForReplay ? 'status' : undefined}>
       {(state.isRunning || waitingForReplay) && <span className={styles.emptySpinner} aria-hidden="true" />}
@@ -1061,7 +1088,7 @@ export function SwarmViz({ state, isReplay, onNavigateToChat }: SwarmVizProps) {
           : <>Run a simulation to see the {scenarioLabels.place} visualization.</>}
     </div>
   );
-  const hasSnapshots = maxTurn > 0;
+  const hasSnapshots = snapsA.length > 0 || snapsB.length > 0;
   const showAlert = !isReplay && hasSnapshots && alertToast;
 
   // Leader metadata is now resolved above so
@@ -1075,10 +1102,10 @@ export function SwarmViz({ state, isReplay, onNavigateToChat }: SwarmVizProps) {
   // vertically it doubles scroll length. A/B toggle above gives the
   // user deliberate control without giving up deliberate design.
   const effectiveFocusedSide: 'a' | 'b' | null = phone ? (focusedSide ?? 'a') : focusedSide;
-  const prevSnapA = currentTurn > 0
+  const prevSnapA = playhead ? snapsA.findLast(snap => snap.turn < (snapA?.turn ?? 0)) : currentTurn > 0
     ? (snapsA[currentTurn - 1] ?? snapsA[snapsA.length - 2])
     : undefined;
-  const prevSnapB = currentTurn > 0
+  const prevSnapB = playhead ? snapsB.findLast(snap => snap.turn < (snapB?.turn ?? 0)) : currentTurn > 0
     ? (snapsB[currentTurn - 1] ?? snapsB[snapsB.length - 2])
     : undefined;
   // Search matches are recomputed only when the query or snapshots
@@ -1132,7 +1159,7 @@ export function SwarmViz({ state, isReplay, onNavigateToChat }: SwarmVizProps) {
     <div className={styles.jumpLatestAnchor}>
       <button
         type="button"
-        onClick={() => handleTurnChange(maxTurn - 1)}
+        onClick={() => playhead ? playhead.latest() : handleTurnChange(maxTurn - 1)}
         aria-label={`Jump to latest turn (T${maxTurn})`}
         className={styles.jumpLatest}
       >
@@ -1448,6 +1475,7 @@ export function SwarmViz({ state, isReplay, onNavigateToChat }: SwarmVizProps) {
           <LivingSwarmGrid
             vizPanel
             snapshot={snapA}
+            paused={paused}
             previousSnapshot={prevSnapA}
             snapshotHistory={snapsA}
             actorName={leaderA?.name ?? 'Leader A'}
@@ -1491,6 +1519,7 @@ export function SwarmViz({ state, isReplay, onNavigateToChat }: SwarmVizProps) {
           <LivingSwarmGrid
             vizPanel
             snapshot={snapB}
+            paused={paused}
             previousSnapshot={prevSnapB}
             snapshotHistory={snapsB}
             actorName={leaderB?.name ?? 'Leader B'}

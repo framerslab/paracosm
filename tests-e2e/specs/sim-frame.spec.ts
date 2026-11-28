@@ -165,7 +165,7 @@ async function geometry(page: Page) {
 }
 
 const runMenu = (page: Page) => page.getByRole('button', { name: 'RUN', exact: true });
-const replayStatus = (page: Page) => page.getByRole('status').filter({ hasText: /^REPLAYING/i });
+const replayStatus = (page: Page) => page.getByRole('status').filter({ hasText: /^Watching a saved run/i });
 const runStatus = (page: Page) => page.getByRole('region', { name: 'Run status' });
 const savedPair = (page: Page) => page.getByRole('region', { name: 'Saved runs' })
   .getByRole('link', { name: /(?=.*Aria Chen)(?=.*Dietrich Voss)(?=.*Mars Genesis)/i });
@@ -1089,13 +1089,13 @@ test('legal L8: the run screen’s event label reads 4.5 to 1', async ({ page })
     for (const look of LOOKS) {
       await test.step(width + ' px, ' + look, async () => {
         await page.setViewportSize({ width, height: 844 });
-        await page.emulateMedia({ colorScheme: look });
+        await page.emulateMedia({ colorScheme: look, reducedMotion: 'reduce' });
         await page.goto(new URL(href!, page.url()).href);
         await expect(replayStatus(page)).toBeVisible();
-        const chips = page.locator('[class*="compactCrisis"], [class*="chipCrisis"]');
-        await expect(chips.first()).toBeVisible();
-        for (const chip of await chips.all()) {
-          const words = await measureText(page, chip);
+        const labels = page.getByTestId('watch-crisis-kind').filter({ visible: true });
+        await expect(labels.first()).toBeVisible();
+        for (const label of await labels.all()) {
+          const words = await measureText(page, label);
           expect(words.length).toBeGreaterThan(0);
           for (const word of words) expect(word.ratio, word.selector).toBeGreaterThanOrEqual(4.5);
         }

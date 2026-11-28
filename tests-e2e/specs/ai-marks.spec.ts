@@ -60,6 +60,8 @@ for (const width of [320, 390, 640, 800]) {
       expect(replay.ok()).toBe(true);
       expect(await replay.text()).toContain(JSON.stringify(headline));
 
+      await expect(page.getByRole('status', { name: 'Simulation verdict' })).toHaveCount(0);
+      await openTab(page, 'reports');
       const banner = page.getByRole('status', { name: 'Simulation verdict' });
       const title = banner.getByText(headline, { exact: true });
       await expectMark(title);
@@ -98,6 +100,8 @@ test('a long winner name leaves every word of the verdict headline whole at 800p
   });
   await openPair(page, 'light');
   await expect(page.getByRole('status', { name: /^Simulation status: Complete\./ })).toBeVisible();
+  await expect(page.getByRole('status', { name: 'Simulation verdict' })).toHaveCount(0);
+  await openTab(page, 'reports');
   const banner = page.getByRole('status', { name: 'Simulation verdict' });
   await expect(banner.getByText(leader + ' wins', { exact: true })).toBeVisible();
   const title = banner.getByText(headline, { exact: true });
@@ -145,6 +149,12 @@ async function expectUnmarked(text: Locator) {
   expect(await text.evaluateAll(nodes => nodes.filter(node => node.closest('[data-ai-generated="true"]')).length)).toBe(0);
 }
 
+async function readLastTurn(page: Page) {
+  const line = page.getByRole('slider', { name: 'Run line' });
+  await expect(line).toHaveAttribute('aria-valuetext', 'Verdict');
+  await line.press('ArrowLeft');
+}
+
 async function libraryRunId(page: Page, actor: string) {
   let runId: string | undefined;
   await expect.poll(async () => {
@@ -167,6 +177,7 @@ for (const width of [320, 390, 1440]) {
       try {
         const page = await context.newPage();
         await openPair(page, look);
+        await readLastTurn(page);
         const decision = page.getByText('Keep a reserve of water.', { exact: true }).filter({ visible: true }).first();
         await expectMark(decision);
         await expect(page.locator(meta)).toHaveCount(1);
@@ -213,7 +224,8 @@ test('generated leaders and successful chat replies carry their own source', asy
     await route.continue({ postData: { ...route.request().postDataJSON(), actors } });
   });
   await openPair(page, 'dark');
-  await expect(page.getByText('Generated leader', { exact: true }).first()).toBeVisible();
+  await readLastTurn(page);
+  await expectMark(page.getByText('Generated leader', { exact: true }).filter({ visible: true }).and(page.locator(mark)).first());
   const reply = await page.request.post(origin + '/chat', {
     data: { agentId: 'generated-leader-crew-1', leader: 'Generated leader', message: 'How are the stores?' },
   });
@@ -287,6 +299,7 @@ test('generated leaders and successful chat replies carry their own source', asy
     aiGenerated: true, generator: 'paracosm', models: expect.any(Object),
   });
   await page.goto(origin + '/sim?tab=sim&replay=' + encodeURIComponent(sessionId));
+  await readLastTurn(page);
   await expectMark(page.getByText('Keep a reserve of water.', { exact: true }).filter({ visible: true }).first());
   await expectQuietPage(page);
 });
@@ -623,6 +636,7 @@ test('editing generated instructions clears their source and preserves the other
   expect(edited.aiAuthorship.fields).not.toContain('instructions');
   expect(supplied.aiAuthorship).toBeUndefined();
   await page.waitForURL(url => url.searchParams.get('tab') === 'sim');
+  await page.getByRole('button', { name: /^Read all \d+ turns at once$/ }).click();
   const authoredArchetype = page.getByText('ENGINEER', { exact: true }).filter({ visible: true })
     .and(page.locator(mark)).first();
   await expectMark(authoredArchetype);
@@ -721,6 +735,7 @@ for (const width of [390, 1280]) {
       await route.continue({ postData: { ...route.request().postDataJSON(), actors } });
     });
     await openPair(page, 'light');
+    await page.getByRole('button', { name: /^Read all \d+ turns at once$/ }).click();
     const bio = page.locator('.leaders-row').getByText('"' + actors[0].instructions + '"', { exact: true }).filter({ visible: true });
     await expect(bio).toHaveCount(2);
     await expectMark(bio.nth(0));
@@ -751,14 +766,15 @@ for (const width of [390, 1280]) {
 
 test('Watch, the event log and the verdict dialog each expose ownership on the displayed passage', async ({ page }) => {
   await openPair(page, 'dark');
+  await readLastTurn(page);
   const decision = page.getByText('Keep a reserve of water.', { exact: true }).filter({ visible: true }).first();
   await expectMark(decision);
-  const card = decision.locator('xpath=ancestor::*[./details/summary[contains(., "Full reasoning")]][1]');
-  await card.locator('summary').click();
+  const card = decision.locator('xpath=ancestor::article[1]');
   await expectMark(card.getByText('The next harvest needs a cushion.', { exact: true }));
-  await expectMark(card.locator('details').getByText('Keep a reserve of water.', { exact: true }));
 
+  await page.getByRole('slider', { name: 'Run line' }).press('End');
   await expectMark(page.getByText('The reserve carried the crew.', { exact: true }).filter({ visible: true }).first());
+  await openTab(page, 'reports');
   await page.getByRole('button', { name: /View Full Verdict/ }).click();
   const verdict = page.getByRole('dialog', { name: 'Simulation verdict' });
   await expectMark(verdict.getByText('Stored water protected the new crops.', { exact: true }));
@@ -881,12 +897,12 @@ async function openLegacyPair(page: Page, secondLeader?: string) {
 test('a run saved before field-level source marks its model passages and leaves fallback text unmarked', async ({ page }) => {
   const id = await openLegacyPair(page, 'Legacy fallback leader');
   await page.goto(origin + '/sim?tab=sim&replay=' + encodeURIComponent(id));
+  await readLastTurn(page);
   const decision = page.getByText('Keep a reserve of water.', { exact: true }).filter({ visible: true }).first();
   await expectMark(decision);
-  const card = decision.locator('xpath=ancestor::*[./details/summary[contains(., "Full reasoning")]][1]');
-  await card.locator('summary').click();
+  const card = decision.locator('xpath=ancestor::article[1]');
   await expectMark(card.getByText('The next harvest needs a cushion.', { exact: true }));
-  await expectUnmarked(page.getByText(fallbackDecision, { exact: true }).filter({ visible: true }));
+  await expectUnmarked(page.getByText('No decision came back for this crisis.', { exact: true }).filter({ visible: true }));
 
   await openTab(page, 'reports');
   const report = page.getByRole('region', { name: 'Turn-by-turn report' });
@@ -937,6 +953,7 @@ test('a saved run opened in the same page after another run shows every one of i
   const id = await openLegacyPair(await recorder.newPage()).finally(() => recorder.close());
   await openPair(page, 'light');
   await expect(page.getByRole('status', { name: /^Simulation status: Complete\./ })).toBeVisible();
+  await readLastTurn(page);
   await expect(page.getByText('Spend the reserve on new wells.', { exact: true }).filter({ visible: true }).first()).toBeVisible();
   // The page opens the stored pair the way its own address changes do.
   await page.evaluate(replay => {
@@ -945,7 +962,8 @@ test('a saved run opened in the same page after another run shows every one of i
     window.history.pushState(window.history.state, '', url.toString());
     window.dispatchEvent(new PopStateEvent('popstate'));
   }, id);
-  await expectUnmarked(page.getByText(fallbackDecision, { exact: true }).filter({ visible: true }));
+  await readLastTurn(page);
+  await expectUnmarked(page.getByText('No decision came back for this crisis.', { exact: true }).filter({ visible: true }));
   await expectMark(page.getByText('Keep a reserve of water.', { exact: true }).filter({ visible: true }).first());
   await expect(page.getByText('Spend the reserve on new wells.', { exact: true }).filter({ visible: true })).toHaveCount(0);
 });

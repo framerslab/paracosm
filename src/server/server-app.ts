@@ -703,6 +703,7 @@ export interface CreateMarsServerOptions {
  * already live).
  */
 export interface StartConfigHooks {
+  payer?: import('./live-runs.js').RunPayer;
   /** Count of admitted leaders whose source orders needed filling. */
   filledOrderCount?: number;
   /**
@@ -3767,12 +3768,12 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     // refused. A caller with no run of their own clears nothing: the
     // anonymous run they may be watching is not theirs.
     if (req.url === '/clear' && req.method === 'POST') {
-      let body: { runKey?: unknown } = {};
+      let body: { runKey?: unknown; stop?: unknown } = {};
       try {
         const raw = await readBody(req, maxRequestBodyBytes);
         if (raw.trim()) {
           const parsed: unknown = JSON.parse(raw);
-          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) body = parsed as { runKey?: unknown };
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) body = parsed as { runKey?: unknown; stop?: unknown };
         }
       } catch (err) {
         if (err instanceof RequestBodyTooLargeError) {
@@ -3788,17 +3789,25 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         res.end(JSON.stringify(payload));
       };
       const named = typeof body.runKey === 'string' && body.runKey.length > 0 ? body.runKey : null;
+      if (body.stop === true && named === null) {
+        answer(400, { error: 'Stop requires a run key' });
+        return;
+      }
       if (named !== null && named !== own?.key) {
         const other = liveRuns.get(named);
         if (other && other.visitorId !== visitorId) {
           answer(403, { error: 'Not your run' });
         } else {
-          answer(200, { cleared: false, reason: 'not_current' });
+          answer(200, { cleared: false, reason: body.stop === true && !own ? 'no_run' : 'not_current' });
         }
         return;
       }
       if (!own) {
         answer(200, { cleared: false, reason: 'no_run' });
+        return;
+      }
+      if (body.stop === true && (own.ended || !own.inFlight)) {
+        answer(200, { cleared: false, reason: 'ended' });
         return;
       }
       liveRuns.clear(own);
@@ -4884,6 +4893,9 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
 
         // startWithConfig opens the run with its active_scenario event, so a
         // page that connects later replays it too.
+        const payer = setupRouting?.payer === 'visitor' ||
+          (!setupRouting && apiKeyForProvider(launchConfig.provider, requestCredentials))
+          ? 'own' : rateIp !== null ? 'host' : 'server';
         const launched = (() => {
           try {
             return marsServer.startWithConfig(launchConfig, {
@@ -4892,6 +4904,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
               onArtifact: onArtifactPersist,
               visitorId,
               runKey: launchRunKey,
+              payer,
               ownKeyAddress: hasUserKeys ? IpRateLimiter.getIp(req, clientIpHeader) : null,
               searchEnv: isHostedDemo ? {} : undefined,
               filledOrderCount: countMissingOrders(
@@ -5564,6 +5577,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       const run = liveRuns.open({
         visitorId,
         runKey: hooks?.runKey,
+        payer: hooks?.payer,
         ownKeyAddress: hooks?.ownKeyAddress ?? null,
         kind: config.forkFrom ? 'fork' : config.actors.length >= 3 ? 'batch' : 'pair',
         scenario: runScenario,

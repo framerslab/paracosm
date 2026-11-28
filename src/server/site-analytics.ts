@@ -213,7 +213,7 @@ export function countedEvent(body: string, isDocsPage?: (path: string) => boolea
   const keys = Object.keys(parsed);
   if (keys.length !== 3 || !keys.includes('n') || !keys.includes('u') || !keys.includes('p')) return null;
   const event = checkedFirstScreenEvent(parsed.n, parsed.p);
-  if (!event) return null;
+  if (!event?.count) return null;
   const { u } = parsed;
   if (typeof u !== 'string' || /[\\\s]|%(?![0-9a-f]{2})/i.test(u)) return null;
   const url = parsedCountUrl(u);

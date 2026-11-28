@@ -23,10 +23,7 @@ test.use({ baseURL: 'http://127.0.0.1:3458' });
 test.describe.configure({ mode: 'default' });
 
 const running = (page: Page) => page.getByRole('region', { name: 'Run status' }).getByRole('status', { name: /^Simulation status: Running\./ });
-const runProgress = (page: Page) =>
-  page.getByRole('region', { name: 'Run status' }).getByRole('progressbar', { name: /^Simulation progress, turn 1 of \d+$/ });
-const progress = (page: Page, maxTurns: number | RegExp) =>
-  page.getByText(typeof maxTurns === 'number' ? `Turn 1 / ${maxTurns}` : maxTurns, { exact: true });
+const runLine = (page: Page) => page.getByRole('slider', { name: 'Run line' });
 
 test.describe('Run status events @status', () => {
   test('a run started from the page shows as running from its second status event on', async ({ page, request }) => {
@@ -37,14 +34,14 @@ test.describe('Run status events @status', () => {
     await expect(page).toHaveURL(/[?&]tab=sim\b/);
 
     await expect(running(page)).toBeVisible();
-    await expect(progress(page, /^Turn 1 \/ \d+$/)).toBeVisible();
-    await expect(runProgress(page)).toBeVisible();
+    await expect(runLine(page)).toHaveAttribute('aria-valuetext', /^Turn 1 of \d+ on screen$/);
+    await expect(page.getByRole('region', { name: 'Run status' }).getByRole('progressbar')).toHaveCount(0);
 
     // A page that opens during the run is handed both frames in the replay.
     await page.reload();
     await expect(running(page)).toBeVisible();
-    await expect(progress(page, /^Turn 1 \/ \d+$/)).toBeVisible();
-    await expect(runProgress(page)).toBeVisible();
+    await expect(runLine(page)).toHaveAttribute('aria-valuetext', /^Turn 1 of \d+ on screen$/);
+    await expect(page.getByRole('region', { name: 'Run status' }).getByRole('progressbar')).toHaveCount(0);
   });
 
   test('a page that reconnects during a run keeps it running', async ({ page }) => {
@@ -73,12 +70,12 @@ test.describe('Run status events @status', () => {
 
     await page.goto('/sim?tab=sim');
     await expect(running(page)).toBeVisible();
-    await expect(progress(page, 4)).toBeVisible();
+    await expect(runLine(page)).toHaveAttribute('aria-valuetext', 'Turn 1 of 4 on screen');
 
     const seen = served;
     await expect.poll(() => served).toBeGreaterThan(seen + 2);
     await expect(running(page)).toBeVisible();
-    await expect(progress(page, 4)).toBeVisible();
+    await expect(runLine(page)).toHaveAttribute('aria-valuetext', 'Turn 1 of 4 on screen');
 
     // However often the page was handed the run, it holds each frame once:
     // the two status frames and each leader's turn_start.

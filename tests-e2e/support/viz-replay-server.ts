@@ -298,6 +298,22 @@ await sessionStore.saveSession(events, {
   leaderB: LEADERS[1].name,
 }, { pinned: HOSTED_CHROME });
 
+if (HOSTED_CHROME && EVENT_STARTS) {
+  const opening = frame('active_scenario', {
+    id: marsScenario.id,
+    name: marsScenario.labels.name,
+    runKey: 'a-keyed-viz-replay-pair-run',
+    forkedFrom: null,
+    payer: 'own',
+  });
+  await sessionStore.saveSession(events.map((entry, index) => index === 0 ? { ...entry, sse: opening } : entry), {
+    scenarioId: marsScenario.id,
+    scenarioName: marsScenario.labels.name,
+    leaderA: LEADERS[0].name,
+    leaderB: LEADERS[1].name,
+  }, { pinned: true });
+}
+
 // The second stored run: the same two colonies and a third, Yuki Tanaka's, on
 // the first seed past the pair's search, with Dietrich Voss's words.
 const colonyC = colony(marsScenario.setup.defaultSeed + 250, THIRD.name);

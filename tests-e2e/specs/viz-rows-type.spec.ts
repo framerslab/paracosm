@@ -138,7 +138,7 @@ async function picture(page: Page, name: string, part?: Locator, pad = 160): Pro
 // ── The stored run and its controls ──────────────────────────────────────
 
 /** The id of the stored run with two commanders, and its number of turns, from the server's own replay route. */
-async function pairRun(request: APIRequestContext): Promise<{ id: string; turns: number }> {
+async function pairRun(request: APIRequestContext, keyed = false): Promise<{ id: string; turns: number }> {
   const res = await request.get(`${SERVER}/sessions`);
   expect(res.ok()).toBe(true);
   const { sessions } = await res.json() as { sessions: Array<{ id: string }> };
@@ -146,7 +146,11 @@ async function pairRun(request: APIRequestContext): Promise<{ id: string; turns:
     const replay = await request.get(`${SERVER}/sessions/${encodeURIComponent(id)}/replay`);
     expect(replay.ok()).toBe(true);
     const frames: Array<{ type: string; leader: string; data: Record<string, unknown> }> = [];
-    for (const chunk of (await replay.text()).split('\n\n')) {
+    const stream = await replay.text();
+    const opening = stream.split('\n\n').find(chunk => /^event: active_scenario$/m.test(chunk));
+    const payer = opening && /^data: (.+)$/m.exec(opening)?.[1];
+    if ((payer ? JSON.parse(payer).payer === 'own' : false) !== keyed) continue;
+    for (const chunk of stream.split('\n\n')) {
       const event = /^event: (.+)$/m.exec(chunk)?.[1];
       const data = /^data: (.+)$/m.exec(chunk)?.[1];
       if (event === 'sim' && data) frames.push(JSON.parse(data));
@@ -206,7 +210,7 @@ const legend = (page: Page) => page.locator('.viz-content kbd').first().locator(
 const helpDialog = (page: Page) => page.getByRole('dialog', { name: 'Grid viz help' });
 
 /** Opens the stored pair run's replay on the Viz tab in one look at one size, at its last turn. */
-async function openRun(page: Page, run: { id: string; turns: number }, look: Look, size: { width: number; height: number }): Promise<void> {
+async function openRun(page: Page, run: { id: string; turns: number }, look: Look, size: { width: number; height: number }, keyed = false): Promise<void> {
   await page.setViewportSize(size);
   await useLook(page, look);
   // The Viz tab keeps its mode on the device: each open starts from LIVING.
@@ -217,9 +221,21 @@ async function openRun(page: Page, run: { id: string; turns: number }, look: Loo
   const status = page.getByRole('region', { name: 'Run status' });
   await expect(status.getByRole('status', { name: /^Simulation status: Complete\./ })).toBeAttached({ timeout: 60_000 });
   await expect(page.getByRole('contentinfo').getByRole('button', { name: 'Analytics choices' })).toBeVisible();
-  await expect(status.getByText(/^\d+k tokens$/)).toBeVisible();
-  await expect(status.getByText(/^\$\d+\.\d+$/)).toBeVisible();
+  const tokens = status.getByText(/^\d+k tokens$/);
+  const spend = status.getByText(/^\$\d+\.\d+$/);
+  if (keyed) {
+    await expect(tokens).toBeVisible();
+    await expect(spend).toBeVisible();
+  } else {
+    await expect(tokens).toHaveCount(0);
+    await expect(spend).toHaveCount(0);
+    await expect(status.locator('[title*=" tokens"][title*=" calls"]')).toHaveCount(0);
+  }
 }
+
+test('a keyed Viz replay shows its recorded usage', async ({ page, request }) => {
+  await openRun(page, await pairRun(request, true), 'dark', sizeAt(1440), true);
+});
 
 /** Opens or folds the turn's words. */
 async function setWords(page: Page, words: 'open' | 'folded'): Promise<void> {

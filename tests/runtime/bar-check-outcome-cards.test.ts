@@ -72,6 +72,13 @@ async function outcomeCards(events: StreamEvent[], results: unknown[]): Promise<
     .map(e => [`${e.turn}:${Number(e.data.eventIndex ?? 0)}`, e.data]));
 }
 
+const withoutLiveChecks = (events: StreamEvent[]) => events.map(event => {
+  if (event.type !== 'outcome') return event;
+  const data = { ...event.data };
+  delete data.barCheck;
+  return { ...event, data };
+});
+
 test('each decision the turn loop checked against its bar is on its outcome card, from the result as the pair runner writes it', async () => {
   const { events, artifact } = await stubbedRun();
   const internal = internalOf(artifact);
@@ -81,10 +88,14 @@ test('each decision the turn loop checked against its bar is on its outcome card
   assert.notEqual(TAG, LEADER.name, 'the result names the leader by its tag, not that name');
   assert.ok(events.some(e => e.type === 'outcome' && e.leader === LEADER.name), 'the outcome events carry the name');
 
-  const cards = await outcomeCards(events, [resultFrame(artifact)]);
+  const live = await outcomeCards(events, []);
+  const cards = await outcomeCards(withoutLiveChecks(events), [resultFrame(artifact)]);
   for (const d of checked) {
     const card = cards.get(`${d.turn}:${d.eventIndex}`);
     assert.ok(card, `turn ${d.turn} event ${d.eventIndex} has an outcome card: ${[...cards.keys()].join(', ')}`);
+    const emitted = events.find(e => e.type === 'outcome' && e.data.turn === d.turn && e.data.eventIndex === d.eventIndex);
+    assert.deepEqual(emitted?.data.barCheck, d.barCheck);
+    assert.deepEqual(live.get(`${d.turn}:${d.eventIndex}`)?._barCheck, d.barCheck);
     assert.deepEqual(card._barCheck, d.barCheck, `turn ${d.turn} event ${d.eventIndex}: the card carries the decision's check`);
   }
 });
@@ -154,7 +165,7 @@ async function forkOverLastCheckedDecision(parentRecord: 'unchecked' | 'absent')
   (fork.metadata as Record<string, unknown>).forkedFrom = forkedFrom;
   internalOf(fork).commanderDecisions = [last];
 
-  const cards = await outcomeCards(events, [resultFrame(parent), { ...resultFrame(fork), forkedFrom }]);
+  const cards = await outcomeCards(withoutLiveChecks(events), [resultFrame(parent), { ...resultFrame(fork), forkedFrom }]);
   return { card: cards.get(key), forkCheck: last.barCheck };
 }
 

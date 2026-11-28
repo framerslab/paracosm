@@ -5,15 +5,17 @@ import { Tooltip } from '../shared/Tooltip';
 import styles from './RunProgress.module.scss';
 
 /** The current turn, in-sim time, seed and validation notes for an open run. */
-export function RunProgress({ gameState, validationFallbacks }: {
+export function RunProgress({ gameState, validationFallbacks, hideTrack = false }: {
   gameState: GameState;
+  /** Watch has its own scrubber. Retain time, seed and the fallback indicator. */
+  hideTrack?: boolean;
   validationFallbacks: readonly ValidationFallbackBucket[];
 }) {
   // The turn's live region stays in the page from turn 0, empty until the
   // first turn: a screen reader reads a region's changes, not the words of
   // one that arrives with them.
   const turnRegion = (
-    <span key="turn-region" className="sr-only" aria-live="polite">
+    hideTrack ? null : <span key="turn-region" className="sr-only" aria-live="polite">
       {gameState.turn > 0 ? `Turn ${gameState.turn} of ${gameState.maxTurns}` : ''}
     </span>
   );
@@ -28,7 +30,7 @@ export function RunProgress({ gameState, validationFallbacks }: {
     {turnRegion}
     <div className={styles.meta}>
       {/* The compact figures open tooltips with their full meaning. */}
-      <Tooltip
+      {!hideTrack && <Tooltip
         content={
           <div>
             <div className={styles.tooltipTitle}>
@@ -51,7 +53,7 @@ export function RunProgress({ gameState, validationFallbacks }: {
           <strong className={styles.tokenValue}>{gameState.turn}</strong>
           <span className={styles.tokenLabel}>/{gameState.maxTurns}</span>
         </span>
-      </Tooltip>
+      </Tooltip>}
       <Tooltip
         content={
           <div>
@@ -95,7 +97,7 @@ export function RunProgress({ gameState, validationFallbacks }: {
           <strong className={styles.tokenValue}>{gameState.seed}</strong>
         </span>
       </Tooltip>
-      <div
+      {!hideTrack && <div
         className={styles.progressTrack}
         role="progressbar"
         aria-valuenow={gameState.turn}
@@ -107,7 +109,7 @@ export function RunProgress({ gameState, validationFallbacks }: {
           className={styles.progressFill}
           style={{ '--progress-pct': progressPct } as CSSProperties}
         />
-      </div>
+      </div>}
       {validationFallbacks.length > 0 && (() => {
         // A fallback replaced a reply with the empty skeleton; a
         // salvage kept the model's own reply without the effect keys

@@ -13,6 +13,7 @@ interface Delivery {
   fields: Record<string, string>;
   count: boolean;
   record: boolean;
+  dashboard?: boolean;
 }
 
 function allows(page: AnalyticsPage, purpose: Purpose): boolean {
@@ -47,7 +48,7 @@ export function deliverEvent(event: Delivery, w?: Window): void {
 
   if (allows(page, 'measure')) {
     try {
-      const params = count ? {
+      const params = event.dashboard || count ? {
         ...fields,
         page_location: page.location.origin + '/sim',
         page_title: 'Simulate one scenario side by side under different leaders | Paracosm',
@@ -83,5 +84,5 @@ function forgePageContext(page: Window, fields: Record<string, string>): Record<
 /** Validates and sends a first-screen event for each allowed purpose. */
 export function sendEvent(name: FirstScreenEventName, fields: Readonly<Record<string, string>>, w?: Window): void {
   const checked = checkedFirstScreenEvent(name, fields);
-  if (checked) deliverEvent({ ...checked, count: true }, w);
+  if (checked) deliverEvent({ ...checked, dashboard: true }, w);
 }

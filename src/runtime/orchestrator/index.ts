@@ -1786,7 +1786,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
 
       const movedPolitics = Object.keys(politicsDeltas).length > 0;
       console.log(`  [outcome] ${outcome} (${event.category}) effects: ${JSON.stringify(systemDeltas)}${movedPolitics ? ` politics: ${JSON.stringify(politicsDeltas)}` : ''}`);
-      emit('outcome', { turn, time, outcome, category: event.category, emergent: !milestone, systemDeltas, ...(movedPolitics ? { politicsDeltas } : {}), eventIndex: ei });
+      emit('outcome', { turn, time, outcome, category: event.category, emergent: !milestone, systemDeltas, ...(movedPolitics ? { politicsDeltas } : {}), eventIndex: ei, ...(barCheck ? { barCheck } : {}) });
       } catch (err) {
         // Classify event-loop errors. Provider-side failures (auth,
         // quota, rate_limit, network) route through reportProviderError

@@ -23,6 +23,7 @@ interface EventCardProps {
   actorIndex: number;
   /** The actor's launch index, whose own registry a forged tool is read from. Defaults to `actorIndex`. */
   actorSlot?: number;
+  neutral?: boolean;
 }
 
 const moodColors: Record<string, string> = {
@@ -35,14 +36,14 @@ const moodBgColors: Record<string, string> = {
   defiant: '#e06530', hopeful: '#6aad48', resigned: '#a89878', neutral: '#a89878',
 };
 
-export function EventCard({ event, actorIndex, actorSlot }: EventCardProps) {
+export function EventCard({ event, actorIndex, actorSlot, neutral = false }: EventCardProps) {
   const scenario = useScenarioContext();
   // The INSPECT key of a forge_attempt or specialist_done tool card opens the
   // tool's trace, the one dialog the forge view's provider renders.
   const forgeView = useForgeView();
   // Each actor's tools are its own: a name another actor forged is that actor's tool.
   const slot = actorSlot ?? actorIndex;
-  const sideColor = getActorColorVar(actorIndex);
+  const sideColor = neutral ? 'var(--text-1)' : getActorColorVar(actorIndex);
   const sideStyle = { '--side-color': sideColor } as CSSProperties;
   const dd = event.data;
 
@@ -458,8 +459,8 @@ export function EventCard({ event, actorIndex, actorSlot }: EventCardProps) {
 
       const outcomeStyle = {
         '--side-color': sideColor,
-        '--outcome-bg': actorIndex === 0 ? 'rgba(232,180,74,.06)' : 'rgba(76,168,168,.06)',
-        '--outcome-border': actorIndex === 0 ? 'var(--amber-dim)' : 'var(--teal-dim)',
+        '--outcome-bg': neutral ? 'var(--bg-deep)' : actorIndex === 0 ? 'rgba(232,180,74,.06)' : 'rgba(76,168,168,.06)',
+        '--outcome-border': neutral ? 'var(--edge-control)' : actorIndex === 0 ? 'var(--amber-dim)' : 'var(--teal-dim)',
       } as CSSProperties;
 
       return (
@@ -472,7 +473,7 @@ export function EventCard({ event, actorIndex, actorSlot }: EventCardProps) {
                 {toolCount} tools &middot; {citeCount} citations
               </span>
             </span>
-            <Badge outcome={outcome} />
+            <Badge outcome={outcome} neutral={neutral} />
           </div>
           {/* Decision text */}
           <AiWritten as="div" className={styles.outcomeText} authored={isAiWrittenPassage(dd, "decision", decision)}>{decision}</AiWritten>

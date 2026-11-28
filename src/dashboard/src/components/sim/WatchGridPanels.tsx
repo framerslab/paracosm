@@ -13,7 +13,7 @@
  *   a panel's grid when the panel first comes into view.
  *
  * Each panel is the Viz tab's own grid, playing in its LIVING mode on the
- * newest turn each leader has reached, with the figures strip over it. The
+ * selected recorded turn for a pair, with the figures strip over it. The
  * Viz tab keeps the modes, the turn scrubber, the search and the forge
  * flares. Under reduced motion the grid itself draws each turn as one still
  * frame. Nothing is drawn until a roster has arrived.
@@ -23,11 +23,13 @@
 import { useMemo } from 'react';
 import { useScenarioContext } from '../../App';
 import type { GameState, LeaderInfo } from '../../hooks/useGameState';
+import { AiWritten } from '../shared/AiWritten';
+import { OneRowScroller } from '../shared/OneRowScroller';
 import { CohortSwarmGrid } from '../viz/CohortSwarmGrid';
 import { DEFAULT_GRID_SETTINGS } from '../viz/grid/GridSettingsDrawer';
 import { LivingSwarmGrid } from '../viz/grid/LivingSwarmGrid';
 import { useVizSnapshots } from '../viz/useVizSnapshots';
-import { alignToNewest, latestTurn } from './watch-grid.helpers';
+import { alignToNewest } from './watch-grid.helpers';
 import styles from './WatchGridPanels.module.scss';
 
 /** The two sides of a pair: the grid's first colour and its second. */
@@ -50,7 +52,13 @@ function hexacoOf(leader: LeaderInfo | null | undefined) {
   };
 }
 
-export function WatchGridPanels({ state }: { state: GameState }) {
+export function WatchGridPanels({ state, place = 0, onSelectPlace, turn, paused }: {
+  state: GameState;
+  place?: number;
+  turn?: number;
+  paused?: boolean;
+  onSelectPlace?: (place: number) => void;
+}) {
   const scenario = useScenarioContext();
   const snapshotMap = useVizSnapshots(state);
   const { actorIds } = state;
@@ -58,7 +66,7 @@ export function WatchGridPanels({ state }: { state: GameState }) {
   const startTime = scenario.setup?.defaultStartTime;
 
   // Nothing until a roster has arrived.
-  if (!actorIds.some(id => (snapshotMap[id]?.length ?? 0) > 0)) return null;
+  if (actorIds.length !== 2 && !actorIds.some(id => (snapshotMap[id]?.length ?? 0) > 0)) return null;
 
   if (actorIds.length >= 3) {
     return (
@@ -79,20 +87,29 @@ export function WatchGridPanels({ state }: { state: GameState }) {
     );
   }
 
-  const turns = [0, 1].map(index => latestTurn(snapshotMap[actorIds[index]]));
+  const histories = actorIds.map(id => (snapshotMap[id] ?? []).filter(snapshot => turn === undefined || snapshot.turn <= turn));
+  const shown = histories.map(snaps => snaps.at(-1));
 
   return (
-    <div className={styles.pair} data-testid="watch-grid">
+    <div className={styles.pair} data-watch-place={place + 1} data-testid="watch-grid">
+      {onSelectPlace && <OneRowScroller label="leaders" role="group" ariaLabel="Shown colony" className={styles.placeSwitch}>
+        {actorIds.map((id, index) => <button key={id} type="button" className={styles.placeKey}
+          aria-pressed={place === index} onClick={() => onSelectPlace(index)}>
+          <span className={styles.placeFigure}>{index + 1}</span>{' '}
+          <AiWritten authored={state.actors[id]?.leader?.aiAuthorship?.fields.includes('name') === true}>{id}</AiWritten>
+        </button>)}
+      </OneRowScroller>}
       {PAIR_SIDES.map(({ side, color }, index) => {
         const id = actorIds[index];
         if (!id) return null;
-        const snaps = snapshotMap[id] ?? [];
+        const snaps = histories[index];
         const leader = state.actors[id]?.leader ?? null;
-        const behind = turns[1 - index] - turns[index];
+        const behind = (turn ?? shown[1 - index]?.turn ?? 0) - (shown[index]?.turn ?? 0);
         return (
           <div key={id} className={styles.panel} data-testid="watch-grid-panel" data-place={index + 1}>
             <LivingSwarmGrid
-              snapshot={snaps[snaps.length - 1]}
+              snapshot={shown[index]}
+              paused={paused}
               previousSnapshot={snaps[snaps.length - 2]}
               snapshotHistory={snaps}
               actorName={leader?.name ?? id}

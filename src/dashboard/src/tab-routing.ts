@@ -98,6 +98,11 @@ export function requestsSettingsKeyFocus(href: string): boolean {
  */
 export function createSettingsKeyHref(currentHref: string, provider?: string): string {
   const url = new URL(createDashboardTabHref(currentHref, 'settings'));
+  // Preserve the recovery route's tab and field suffix when Watch adds a turn.
+  if (url.searchParams.has('watchTurn')) {
+    url.searchParams.delete('tab');
+    url.searchParams.append('tab', 'settings');
+  }
   url.searchParams.set('focus', provider === 'anthropic' ? 'api-key-anthropic' : 'api-key');
   return url.toString();
 }
@@ -158,4 +163,38 @@ export function resolveSetupRedirectHref(currentHref: string, redirect: string |
 
   targetUrl.hash = '';
   return targetUrl.toString();
+}
+
+export function watchPlaceFromHref(href: string): number {
+  return new URL(href).searchParams.get('watchPlace') === '2' ? 1 : 0;
+}
+
+export function createWatchPlaceHref(href: string, place: number): string {
+  const url = new URL(href);
+  url.searchParams.set('watchPlace', place === 1 ? '2' : '1');
+  return url.toString();
+}
+
+export function createReportTurnHref(href: string, turn: number): string {
+  const url = new URL(createDashboardTabHref(href, 'reports'));
+  url.hash = `turn-${turn}`;
+  return url.toString();
+}
+
+/** A recorded turn or the verdict at the end of the run. */
+export type WatchTurn = number | 'end';
+
+/** Reads the addressed playhead position once the matching run arrives. */
+export function watchTurnFromHref(href: string): WatchTurn | null {
+  const value = new URL(href).searchParams.get('watchTurn');
+  if (value === 'end') return value;
+  return value && /^(?:[1-9][0-9]?|100)$/.test(value) ? Number(value) : null;
+}
+
+/** Changes only the Watch position. */
+export function createWatchTurnHref(href: string, turn: WatchTurn | null): string {
+  const url = new URL(href);
+  if (turn === null) url.searchParams.delete('watchTurn');
+  else url.searchParams.set('watchTurn', String(turn));
+  return url.toString();
 }

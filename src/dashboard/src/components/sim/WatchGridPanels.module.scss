@@ -58,3 +58,58 @@
   max-width: 100%;
   background: var(--bg-deep);
 }
+
+.placeSwitch {
+  background: var(--bg-deep);
+  border-block-end: var(--frame-rule-width) solid var(--edge-control);
+}
+
+.placeKey {
+  min-block-size: var(--frame-target-size);
+  min-inline-size: var(--frame-target-size);
+  padding-inline: var(--frame-gap);
+  border-block-end: var(--frame-rule-width) solid transparent;
+  color: var(--text-1);
+  font: 600 var(--font-read)/1.4 var(--sans);
+  cursor: pointer;
+  white-space: nowrap;
+
+  .placeFigure { font-family: var(--mono); }
+  &:hover { background: var(--bg-panel); }
+  &:active { background: var(--bg-card); }
+  &[aria-pressed='true'] { border-block-end-color: var(--amber); }
+  &:focus-visible {
+    outline: var(--frame-rule-width) solid var(--amber);
+    outline-offset: calc(-1 * var(--frame-rule-width));
+  }
+}
+
+// Keep the data and interaction of the grid's strip and field. Its drawing
+// still reads each colony's palette, while the surrounding UI reads in ink.
+.pair .panel {
+  [style*='--side-color:'] { --side-color: var(--text-1) !important; }
+  [style*='--age-bg:']:not([style*='--age-bg: transparent']) { --age-bg: var(--edge-control) !important; }
+  button[aria-label^='Spotlight:'] {
+    border-color: var(--edge-control) !important;
+
+    > span[aria-hidden='true'] { color: var(--text-1) !important; }
+  }
+
+  [data-testid^='living-colony-field-'] {
+    --tint-color: var(--bg-deep) !important;
+    --wrap-border: var(--edge-control) !important;
+  }
+}
+
+@media (max-width: 767px) {
+  .pair[data-watch-place='1'] .panel[data-place='2'],
+  .pair[data-watch-place='2'] .panel[data-place='1'] {
+    display: none;
+  }
+}
+
+@media (min-width: 768px) {
+  .placeSwitch {
+    display: none;
+  }
+}

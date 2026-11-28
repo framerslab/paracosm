@@ -271,7 +271,10 @@ export interface LiveRunRegistryOptions {
 }
 
 /** A run to open with {@link LiveRunRegistry.open}. */
+export type RunPayer = 'host' | 'own' | 'server';
+
 export interface OpenRunInput {
+  payer?: RunPayer;
   visitorId: string;
   kind: RunKind;
   scenario: ScenarioPackage;
@@ -702,6 +705,11 @@ export class LiveRunRegistry {
       forkedFrom: input.forkedFrom ?? null,
       kind: input.kind,
       provenance: run.provenance,
+      payer: input.payer,
+      leaders: input.config?.actors.length,
+      turns: input.config?.turns,
+      seed: input.config?.seed,
+      startedAt: now,
     });
     run.metaFrame = run.buffer[0] ?? null;
     if (this.viewerCount(run) > 0) run.hadViewer = true;

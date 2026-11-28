@@ -116,6 +116,15 @@ const OutcomeDataSchema = z.object({
   systemDeltas: z.record(z.string(), z.number()),
   politicsDeltas: z.record(z.string(), z.number()).optional(),
   eventIndex: z.number().int().min(0),
+  barCheck: z.object({
+    boldChance: z.number(),
+    bar: z.number(),
+    clearsBar: z.boolean(),
+    choseBold: z.boolean(),
+    departs: z.boolean(),
+    departureFact: z.string(),
+    unexplained: z.boolean(),
+  }).optional(),
 });
 
 const PersonalityDriftDataSchema = z.object({

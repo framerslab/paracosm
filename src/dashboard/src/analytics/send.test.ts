@@ -113,6 +113,32 @@ test('delivery errors leave the action and the other destinations working', asyn
   await new Promise<void>(resolve => setImmediate(resolve));
 });
 
+test('Watch disclosures measure only with the fixed dashboard context', () => {
+  for (const choices of [null, [], ['count'], ['record'], ['measure'], ['count', 'measure', 'record']] as Array<Purpose[] | null>) {
+    const page = browser(choices);
+    sendEvent('watch_fold', { fold: 'crisis' }, page.window);
+    sendEvent('watch_fold', { fold: 'reasoning', detail: 'private' }, page.window);
+    sendEvent('watch_fold', { fold: 'private' }, page.window);
+    assert.deepEqual(page.posts, []);
+    assert.deepEqual(page.recordings, []);
+    assert.deepEqual(page.measures, choices?.includes('measure') ? [['event', 'watch_fold', { fold: 'crisis', ...context }]] : []);
+  }
+});
+
+test('Watch playback measures explicit actions with the fixed vocabulary', () => {
+  for (const choices of [null, ['count', 'record'], ['measure'], ['count', 'measure', 'record']] as Array<Purpose[] | null>) {
+    const page = browser(choices);
+    sendEvent('watch_play', { key: 'speed_half' }, page.window);
+    sendEvent('watch_turn_pick', {}, page.window);
+    sendEvent('watch_turn_pick', { turn: '3' }, page.window);
+    sendEvent('watch_play', { key: 'auto' }, page.window);
+    assert.deepEqual(page.posts, []);
+    assert.deepEqual(page.recordings, []);
+    assert.deepEqual(page.measures, choices?.includes('measure')
+      ? [['event', 'watch_play', { key: 'speed_half', ...context }], ['event', 'watch_turn_pick', context]]
+      : []);
+  }
+});
 
 test('full prompt opens reach only the allowed destinations with the fixed side', () => {
   const name = 'qs_prompt_open';
@@ -140,4 +166,22 @@ test('full prompt opens reach only the allowed destinations with the fixed side'
   sendEvent(name, { side: 'right', name: 'marker' }, page.window);
   sendEvent(name, { side: 'marker' }, page.window);
   assert.deepEqual([page.posts.length, page.measures.length, page.recordings.length], [1, 1, 1]);
+});
+
+test('Watch entry, Stop and end use measure and record consent only', () => {
+  const events = [
+    ['watch_view', { size: 'pair', state: 'running' }],
+    ['watch_stop', { step: 'confirmed' }],
+    ['watch_end_seen', { kind: 'stopped', reached: 'key' }],
+  ] as const;
+  for (const choices of [null, [], ['count'], ['record'], ['measure'], ['count', 'measure', 'record']] as Array<Purpose[] | null>) {
+    const page = browser(choices);
+    for (const [name, fields] of events) sendEvent(name, fields, page.window);
+    sendEvent('watch_stop', { step: 'confirmed', run: 'private' }, page.window);
+    assert.deepEqual(page.posts, []);
+    assert.deepEqual(page.measures, choices?.includes('measure')
+      ? events.map(([name, fields]) => ['event', name, { ...fields, ...context }]) : []);
+    assert.deepEqual(page.recordings, choices?.includes('record')
+      ? events.map(([name]) => ['event', name]) : []);
+  }
 });

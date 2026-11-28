@@ -154,6 +154,8 @@ test('computeGameState: outcome event clears pendingDecision (DECIDING chip drop
   const state = computeGameState([decisionEvent, outcomeEvent], false);
   assert.equal(state.actors.Alice.pendingDecision, '', 'pending cleared after outcome');
   assert.equal(state.actors.Alice.decisions, 1, 'decision counted');
+  assert.deepEqual(state.actors.Alice.events.map(event => event.type), ['outcome'], 'playback holds the folded outcome only');
+  assert.equal(state.actors.Alice.events[0].data._decision, 'seal_breach', 'an older untimed decision still joins its outcome');
 });
 
 test('computeGameState: turn_start clears stale pendingDecision from a prior turn', () => {

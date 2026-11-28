@@ -148,12 +148,18 @@ async function pressInspect(inspect: Locator): Promise<void> {
 const lookShown = (page: Page, look: Look) =>
   page.waitForFunction((l) => document.documentElement.classList.contains('light') === (l === 'light'), look);
 
-/** Opens the pair run's replay on the Sim tab at one size in one look, played in to its last tool. */
+/** Opens a saved pair's turn history from Watch. */
+async function openPairHistory(page: Page): Promise<void> {
+  await page.getByRole('button', { name: /^Read all \d+ turns at once$/ }).click();
+}
+
+/** Opens the pair run's replay and waits for its last tool in turn history. */
 async function openPairSim(page: Page, request: APIRequestContext, size: Size, look: Look): Promise<void> {
   await page.setViewportSize(size);
   await useLook(page, look);
   await page.goto(replayUrl(PAIR_SERVER, await pairSessionId(request), 'sim'));
   await lookShown(page, look);
+  await openPairHistory(page);
   await expect(page.getByText(LAST_TOOL).first()).toBeAttached();
 }
 
@@ -983,6 +989,7 @@ test.describe('the stations on the run\'s record', () => {
     await useLook(page, 'dark');
     await page.goto(replayUrl(PAIR_SERVER, id, 'sim'));
     await lookShown(page, 'dark');
+    await openPairHistory(page);
     // Turn 1 holds the first forge of water_ration_index, which did not pass: Request decided it.
     await pressInspect(inspectKey(page, RATION).first());
     const trace = traceOf(page, RATION);
@@ -1006,6 +1013,7 @@ test.describe('the stations on the run\'s record', () => {
     await page.goto(replayUrl(PAIR_SERVER, id, 'sim'));
     await lookShown(page, 'dark');
     await replayComplete(page, 60_000);
+    await openPairHistory(page);
     await pressInspect(inspectKey(page, RATION).first());
     const trace = traceOf(page, RATION);
     const keys = attemptKeys(trace);
@@ -1493,8 +1501,8 @@ async function rationReforgedWithOtherFields(page: Page, id: string): Promise<vo
 }
 
 /**
- * Serves the pair run's replay without its second turn and its end, so the
- * page plays in turn 1 and waits for more. `release` serves the whole run
+ * Serves the pair replay through the opening frame of turn 2 so Watch can
+ * open All turns before the next forge arrives. `release` serves the whole run
  * on the stream's next connection, which brings the rest as a run that goes
  * on does; the page drops the frames it holds already.
  */
@@ -1519,7 +1527,7 @@ async function holdReplayAtTurn2(page: Page, id: string): Promise<{ release: () 
     };
     const cut = frames.findIndex(chunk => turnOf(chunk) === 2);
     expect(cut, 'the pair run holds a second turn').toBeGreaterThan(0);
-    const body = frames.slice(0, cut).filter(chunk => !/^event: complete$/m.test(chunk)).join('');
+    const body = frames.slice(0, cut + 1).filter(chunk => !/^event: complete$/m.test(chunk)).join('');
     await route.fulfill({ response, body });
   });
   return { release: () => { held = false; } };
@@ -1625,6 +1633,7 @@ test.describe('a link to one tool', () => {
     await useLook(page, 'dark');
     await page.goto(replayUrl(PAIR_SERVER, id, 'sim'));
     await lookShown(page, 'dark');
+    await openPairHistory(page);
     await pressInspect(inspectKey(page, RATION).first());
     const trace = traceOf(page, RATION);
     await expect(trace).toBeVisible();
@@ -1722,6 +1731,7 @@ test.describe('a link to one tool', () => {
         expect(address.searchParams.has('open')).toBe(false);
         expect(address.searchParams.get('replay')).toBe(id);
         expect(address.searchParams.get('tab')).toBe('sim');
+        await openPairHistory(page);
         await expect(page.getByText(LAST_TOOL).first()).toBeAttached();
         await expect(page.getByRole('dialog', { name: /, forged tool \d+$/ })).toHaveCount(0);
         expect(await traceNamesSeen(page)).toEqual([]);

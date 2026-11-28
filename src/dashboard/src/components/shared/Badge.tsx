@@ -1,5 +1,6 @@
 interface BadgeProps {
   outcome: string;
+  neutral?: boolean;
 }
 
 const OUTCOME_STYLES: Record<string, { bg: string; color: string; border: string; label: string }> = {
@@ -9,7 +10,23 @@ const OUTCOME_STYLES: Record<string, { bg: string; color: string; border: string
   conservative_failure: { bg: 'rgba(224,101,48,.08)', color: 'var(--rust)',  border: 'var(--rust-dim)',  label: 'SAFE LOSS' },
 };
 
-export function Badge({ outcome }: BadgeProps) {
+export function outcomeLabel(outcome: string): string {
+  return OUTCOME_STYLES[outcome]?.label ?? outcome.replace(/_/g, ' ').toUpperCase();
+}
+
+export function Badge({ outcome, neutral = false }: BadgeProps) {
+  if (neutral) {
+    const label = outcomeLabel(outcome);
+    return <span aria-label={label.toLowerCase().replace(' ', ', ')} role="img" style={{
+      padding: 'calc(var(--frame-gap) / 4) var(--frame-gap)',
+      borderRadius: 'var(--radius-sm)',
+      font: '600 var(--font-read)/1.4 var(--mono)',
+      display: 'inline-block',
+      background: 'var(--bg-deep)',
+      color: 'var(--text-1)',
+      border: 'var(--frame-rule-width) solid var(--edge-control)',
+    }}>{label}</span>;
+  }
   const s = OUTCOME_STYLES[outcome] || { bg: 'var(--bg-card)', color: 'var(--text-3)', border: 'var(--border)', label: outcome.replace(/_/g, ' ').toUpperCase() };
 
   return (

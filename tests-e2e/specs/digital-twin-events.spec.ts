@@ -243,7 +243,7 @@ test.describe('Digital Twin events @twin', () => {
     await expect(pairRunning(page)).toBeVisible();
     await expect(result(page)).toHaveCount(0);
     await expect(running(page)).toHaveCount(0);
-    await expect(page.getByText(/^Turn 1 \/ \d+$/)).toBeVisible();
+    await expect(page.getByRole('slider', { name: 'Run line' })).toHaveAttribute('aria-valuetext', /^Turn 1 of \d+ on screen$/);
   });
 
   test('a run started during the twin\'s run replaces its progress', async ({ page }) => {
@@ -260,7 +260,7 @@ test.describe('Digital Twin events @twin', () => {
     await expect(result(page)).toHaveCount(0);
     await expect(running(page)).toHaveCount(0);
     await expect(pairRunning(page)).toBeVisible();
-    await expect(page.getByText(/^Turn 1 \/ \d+$/)).toBeVisible();
+    await expect(page.getByRole('slider', { name: 'Run line' })).toHaveAttribute('aria-valuetext', /^Turn 1 of \d+ on screen$/);
   });
 
   test('a run the server refuses leaves the twin\'s progress as it was, and the twin\'s answer still lands', async ({ page }) => {
