@@ -7,7 +7,7 @@
 
 ## One sentence
 
-Paracosm is a **structured counterfactual world model** for AI agents: prompts, briefs, URLs, or JSON drafts ground a typed `ScenarioPackage`; the deterministic seeded kernel, LLM-driven events, specialist analyses, HEXACO-personality leaders, and universal Zod-validated run artifact turn that contract into reproducible forked futures.
+Paracosm is a **structured counterfactual world model** for AI agents. Prompts, briefs, URLs, or JSON drafts ground a typed `ScenarioPackage` that runs as timelines from the same seed, roster and dice. An LLM event director writes each timeline’s unscripted crises from its state. Change who leads or an event at a past turn and compare the outcomes in Zod-validated run artifacts.
 
 ## Why "structured world model" is the right frame
 
@@ -55,7 +55,7 @@ Inside the "structured / LLM-based" branch, paracosm's specific research lineage
 Paracosm operationalizes CWSMs:
 
 - **The constant:** compiled scenario contract + seeded PRNG + kernel lifecycle. Same inputs → identical agent rosters, lifecycles, promotions.
-- **The counterfactual:** leader HEXACO personality profile. Swap one leader for another and every LLM-driven stage diverges.
+- **The counterfactual:** change one input, such as the leader’s trait profile and orders or an event at a past turn.
 - **The measurement:** `fingerprint` + per-turn `stateSnapshotAfter` + `specialistNotes[]` + `decisions[]` + final `worldSnapshot` across all five state bags.
 - **The API:** `WorldModel.fork()` (shipped in 0.7.x) lets callers branch a run at any past turn. Parent runs created with `captureSnapshots: true` carry per-turn kernel snapshots in `scenarioExtensions.kernelSnapshotsPerTurn`; `WorldModel.forkFromArtifact(artifact, atTurn)` reads one, restores the kernel verbatim, and returns a fresh `WorldModel` ready to simulate from `atTurn + 1` with a supplied leader. `metadata.forkedFrom` on the child artifact links back to the parent for chain reconstruction.
 
@@ -87,14 +87,14 @@ LangGraph, AutoGen / AG2, CrewAI, OpenAI Agents SDK, Google ADK, Mastra: these b
 
 ### Top-down agent swarm, not bottom-up emergent swarm
 
-[MiroFish](https://github.com/666ghj/MiroFish) and its upstream [OASIS (CAMEL-AI): OpenReview](https://openreview.net/forum?id=JBzTculaVV) build open-ended social simulations with thousands to one million LLM-driven agents interacting on social-media-shaped substrates. Output is an aggregate prediction report of emergent collective behavior. Paracosm runs a top-down agent swarm: one leader decides, a swarm of specialists and ~100 personality-typed cells reacts, and the output is a deterministic trajectory plus measurable divergence across leaders rather than an emergent-crowd forecast. Both shapes are valid agent swarm architectures; paracosm's lane is the directed, replayable, decision-support side.
+[MiroFish](https://github.com/666ghj/MiroFish) and its upstream [OASIS (CAMEL-AI): OpenReview](https://openreview.net/forum?id=JBzTculaVV) build open-ended social simulations with thousands to one million LLM-driven agents interacting on social-media-shaped substrates. Output is an aggregate prediction report of emergent collective behavior. Paracosm runs one scenario as timelines from the same start, each with a top-down agent swarm and an LLM event director that writes unscripted crises from that timeline’s state. Change one input, such as who leads or an event at a past turn, and compare the resulting trajectories. Both shapes are valid agent swarm architectures; paracosm's lane is the directed, replayable, decision-support side.
 
 | Axis | MiroFish / OASIS | Paracosm |
 |---|---|---|
 | Direction | Bottom-up, emergent | Top-down, leader-driven |
 | Scale | 1,000s to 1,000,000 agents | ~100 agents + 5 specialists + 1 commander |
-| Determinism | Emergent / non-deterministic | Seeded kernel; divergence is purely from leader personality |
-| Input | Seed document (news, policy, fiction) | Prompt/document/URL or JSON draft → `ScenarioPackage` + HEXACO leader |
+| Determinism | Emergent / non-deterministic | Seeded kernel, with model-generated events and decisions |
+| Input | Seed document (news, policy, fiction) | Prompt/document/URL or JSON draft → `ScenarioPackage`, with configurable actors and events |
 | Output | Aggregate prediction report | Universal `RunArtifact` (trajectory, decisions, specialist notes, forged tools, citations, cost) |
 | Primary use | Forecasting | Decision support, counterfactual analysis, digital twins |
 | Language | Python | TypeScript / ESM |
@@ -121,7 +121,7 @@ Kernel state transitions use a Mulberry32-seeded PRNG. Same seed produces identi
 
 ### 3. Counterfactual-first
 
-The product is two runs against the same seed with different leaders, and a surfaced divergence. `wm.batch` scales this to N actors against a compiled world. See [`src/runtime/batch.ts`](../../src/runtime/batch.ts).
+Run one scenario as timelines from the same seed, roster and dice. An LLM event director writes each timeline’s unscripted crises from its state. Change who leads or an event at a past turn and compare the outcomes. `wm.batch` scales this to N actors against a compiled world. See [`src/runtime/batch.ts`](../../src/runtime/batch.ts).
 
 ### 4. Personality-grounded
 

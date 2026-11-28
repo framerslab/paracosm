@@ -1,8 +1,8 @@
 # Paracosm — Full Reference for LLMs
 
-> Agent swarm simulation for structured world modeling with LLMs. Open-source TypeScript framework: compile prompts, briefs, URLs, or scenario JSON drafts into typed ScenarioPackages; run deterministic multi-agent simulations with HEXACO-personality leaders, sandboxed runtime tool forging, and universal forkable RunArtifacts.
+> Agent swarm simulation for structured world modeling with LLMs. Run one scenario from the same start and compare timelines that differ in one thing (a HEXACO leader or an event at a past turn), each with an LLM event director writing its unscripted crises.
 
-This file is a curated, token-efficient full-content map of Paracosm for large language models. For the canonical short index, see https://paracosm.agentos.sh/llms.txt. For machine-readable HTML schema, see the JSON-LD on https://paracosm.agentos.sh/.
+Run a scenario as timelines from the same seed, roster and dice, and compare outcomes after changing who leads or an event at a past turn. An LLM event director writes each timeline’s unscripted crises from what happens in it. For the canonical short index, see https://paracosm.agentos.sh/llms.txt. For machine-readable HTML schema, see the JSON-LD on https://paracosm.agentos.sh/.
 
 ## Identity
 
@@ -18,7 +18,7 @@ This file is a curated, token-efficient full-content map of Paracosm for large l
 
 ## What Paracosm is
 
-Paracosm is a structured world-model engine for LLM agent swarms. You define or ground a world as a `ScenarioPackage` (departments, metrics, crisis templates, progression hooks). The engine populates it, generates events from live state, and resolves outcomes through a seeded deterministic kernel. LLM-driven stages diverge because every prompt carries the leader's HEXACO profile.
+Paracosm is a structured world-model engine for LLM agent swarms. You define or ground a world as a `ScenarioPackage` (departments, metrics, crisis templates, progression hooks). The engine runs it as timelines from the same seed, roster and dice, with an LLM event director writing each timeline’s unscripted crises from what happens in it. Change one thing between timelines, such as the leader’s trait profile and orders or an event at a past turn, and compare the outcomes.
 
 The npm package exports two scenarios, Mars Genesis and Lunar Outpost (`marsScenario`, `lunarScenario`), and the repository's `scenarios/` folder holds five more as JSON. New ones compile from a JSON draft, prompt, brief, or URL.
 
