@@ -11,7 +11,7 @@
   cursor: pointer;
   transition: background 0.15s, color 0.15s, border-color 0.15s;
 
-  &:hover {
+  &:hover:not(:disabled) {
     background: var(--teal-glow);
     color: var(--amber);
     border-color: var(--amber);

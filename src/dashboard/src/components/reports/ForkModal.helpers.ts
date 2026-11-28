@@ -90,6 +90,7 @@ type CustomEvent = { turn: number; title: string; description: string };
 export type CustomEventLine =
   | { lineNumber: number; status: 'used'; event: CustomEvent }
   | { lineNumber: number; status: 'before-fork' | 'after-fork'; turn: number }
+  | { lineNumber: number; status: 'same-turn'; turn: number; firstLineNumber: number }
   | { lineNumber: number; status: 'malformed' };
 
 function parseCustomEventLine(line: string): CustomEvent | undefined {
@@ -115,9 +116,18 @@ export function parseCustomEvents(input: string): CustomEvent[] {
 /**
  * Inspect each non-empty line against the turns the fork will play,
  * from the turn after its snapshot through the final turn, inclusive.
+ * With `onePerTurn` (a fork on the hosted demo's keys, see
+ * {@link forkRunLimits}), a later line for a turn that an earlier usable
+ * line already holds is `same-turn`: the run keeps the first.
  */
-export function inspectCustomEventLines(input: string, atTurn: number, maxTurns: number): CustomEventLine[] {
+export function inspectCustomEventLines(
+  input: string,
+  atTurn: number,
+  maxTurns: number,
+  { onePerTurn = false }: { onePerTurn?: boolean } = {},
+): CustomEventLine[] {
   const lines: CustomEventLine[] = [];
+  const firstLineOfTurn = new Map<number, number>();
   for (const [index, rawLine] of input.split('\n').entries()) {
     const line = rawLine.trim();
     if (!line) continue;
@@ -129,7 +139,11 @@ export function inspectCustomEventLines(input: string, atTurn: number, maxTurns:
       lines.push({ lineNumber, status: 'before-fork', turn: event.turn });
     } else if (event.turn > maxTurns) {
       lines.push({ lineNumber, status: 'after-fork', turn: event.turn });
+    } else if (onePerTurn && firstLineOfTurn.has(event.turn)) {
+      const firstLineNumber = firstLineOfTurn.get(event.turn) ?? lineNumber;
+      lines.push({ lineNumber, status: 'same-turn', turn: event.turn, firstLineNumber });
     } else {
+      firstLineOfTurn.set(event.turn, lineNumber);
       lines.push({ lineNumber, status: 'used', event });
     }
   }
@@ -182,12 +196,35 @@ export function forkFinalTurn(parent: ForkParent): number {
   return last > 0 ? last : 6;
 }
 
+/** What the server's `/admin-config` says about who pays for a fork and its turn cap. */
+export interface ForkServer {
+  hostedDemo?: boolean;
+  demoCaps?: { maxTurns?: number };
+}
+
+/**
+ * The last turn a fork plays and whether a turn keeps one custom event.
+ * Reports posts a fork with no provider key, so on the hosted demo the host
+ * pays and `/setup` applies the demo caps (`applyDemoCaps`): the fork ends
+ * at the smaller of the parent's final turn and the turn cap, and each turn
+ * keeps its first custom event. Elsewhere the fork plays through the
+ * parent's final turn and keeps every event.
+ */
+export function forkRunLimits(parent: ForkParent, server?: ForkServer): { finalTurn: number; onePerTurn: boolean } {
+  const finalTurn = forkFinalTurn(parent);
+  if (server?.hostedDemo !== true) return { finalTurn, onePerTurn: false };
+  const cap = server.demoCaps?.maxTurns;
+  const capped = typeof cap === 'number' && Number.isInteger(cap) && cap > 0 ? Math.min(finalTurn, cap) : finalTurn;
+  return { finalTurn: capped, onePerTurn: true };
+}
+
 /**
  * Whether the Reports tab offers a fork at `turn`: the parent holds a
  * snapshot for it, and a turn is left to run after it. A fork at the
  * final turn posts `turns` equal to its fork turn, which `/setup`
- * refuses, so the control is not shown there.
+ * refuses, so the control is not shown there; on the hosted demo the
+ * final turn is the one {@link forkRunLimits} gives.
  */
-export function canForkAtTurn(parent: ForkParent, turn: number): boolean {
-  return snapshotTurns(parent).includes(turn) && turn < forkFinalTurn(parent);
+export function canForkAtTurn(parent: ForkParent, turn: number, server?: ForkServer): boolean {
+  return snapshotTurns(parent).includes(turn) && turn < forkRunLimits(parent, server).finalTurn;
 }
