@@ -1,6 +1,5 @@
 import test, { type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import type { SpawnSyncReturns } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
@@ -25,22 +24,25 @@ const UNLISTED = [
   'npm error 404 Not Found - GET https://registry.npmjs.org/no-such-package-for-paracosm - Not found',
 ].join('\n');
 
-function answer(status: number, stderr = ''): SpawnSyncReturns<string> {
-  return { pid: 1, output: [], stdout: '', stderr, status, signal: null };
+function answer(status: number, stderr = '', error?: Error) {
+  return { stderr, status, signal: null, error };
 }
 
 /** npmWithRetry with a scripted npm: each call takes the next answer; waits and calls are recorded. */
-function scripted(answers: SpawnSyncReturns<string>[], tries?: number) {
+function scripted(answers: ReturnType<typeof answer>[], tries?: number) {
   const calls: string[][] = [];
   const waits: number[] = [];
   const run = () => npmWithRetry(['install', 'paracosm-0.9.1181.tgz', '--no-audit', '--no-fund'], {
     cwd: '/tmp/paracosm-package-smoke',
     tries,
     waitMs: 30_000,
-    run: (command, args) => {
-      calls.push([command, ...args]);
+    run: async (args, cwd, onStderr) => {
+      assert.equal(cwd, '/tmp/paracosm-package-smoke');
+      calls.push(args);
       const next = answers.shift();
       assert.ok(next, 'npm was run more times than the test scripted');
+      if (next.stderr) onStderr(next.stderr);
+      if (next.error) throw next.error;
       return next;
     },
     sleep: (ms) => {
@@ -66,39 +68,39 @@ test('an unserved tarball, the 404 of a version published moments ago, is the on
   assert.equal(isUnservedTarball(undefined), false);
 });
 
-test('an install that meets an unserved tarball waits and runs again until npm succeeds', () => {
+test('an install that meets an unserved tarball waits and runs again until npm succeeds', async () => {
   const { run, calls, waits } = scripted([answer(1, UNSERVED), answer(1, UNSERVED), answer(0)]);
-  assert.equal(run(), 3);
+  assert.equal(await run(), 3);
   assert.equal(calls.length, 3);
-  for (const call of calls) assert.deepEqual(call, ['npm', 'install', 'paracosm-0.9.1181.tgz', '--no-audit', '--no-fund']);
+  for (const call of calls) assert.deepEqual(call, ['install', 'paracosm-0.9.1181.tgz', '--no-audit', '--no-fund']);
   assert.deepEqual(waits, [30_000, 30_000]);
 });
 
-test('an install that succeeds at once runs npm once and never waits', () => {
+test('an install that succeeds at once runs npm once and never waits', async () => {
   const { run, calls, waits } = scripted([answer(0)]);
-  assert.equal(run(), 1);
+  assert.equal(await run(), 1);
   assert.equal(calls.length, 1);
   assert.deepEqual(waits, []);
 });
 
-test('any other failure is thrown at once, without a wait', () => {
+test('any other failure is thrown at once, without a wait', async () => {
   const { run, calls, waits } = scripted([answer(1, UNLISTED)]);
-  assert.throws(run, /Command failed: npm install paracosm-0\.9\.1181\.tgz --no-audit --no-fund \(exit 1\)/);
+  await assert.rejects(run, { message: 'Command failed: npm install paracosm-0.9.1181.tgz --no-audit --no-fund' });
   assert.equal(calls.length, 1);
   assert.deepEqual(waits, []);
 });
 
-test('a tarball still unserved at the last try fails the install', () => {
+test('a tarball still unserved at the last try fails the install', async () => {
   const { run, calls, waits } = scripted([answer(1, UNSERVED), answer(1, UNSERVED), answer(1, UNSERVED)], 3);
-  assert.throws(run, /Command failed: npm install .* \(exit 1\)/);
+  await assert.rejects(run, /Command failed: npm install /);
   assert.equal(calls.length, 3);
   assert.deepEqual(waits, [30_000, 30_000]);
 });
 
-test('npm that cannot start is thrown as its own error', () => {
+test('npm that cannot start is thrown as its own error', async () => {
   const missing = Object.assign(new Error('spawnSync npm ENOENT'), { code: 'ENOENT' });
-  const { run } = scripted([{ ...answer(0), status: null, error: missing }]);
-  assert.throws(run, /spawnSync npm ENOENT/);
+  const { run } = scripted([answer(0, '', missing)]);
+  await assert.rejects(run, (error) => error === missing);
 });
 
 /** Put a controlled npm executable on PATH for a test of the real child-process path. */

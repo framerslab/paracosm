@@ -155,14 +155,14 @@ async function main() {
     const project = join(work, 'project');
     mkdirSync(project);
     writeFileSync(join(project, 'package.json'), JSON.stringify({ name: 'paracosm-package-smoke', private: true }));
-    npmWithRetry(['install', tarball, '--no-audit', '--no-fund'], { cwd: project });
+    await npmWithRetry(['install', tarball, '--no-audit', '--no-fund'], { cwd: project });
     if (options.reinstallFromLockfile) {
       // The lockfile the install wrote, installed again as `npm ci` installs it: npm builds a
       // package from its lockfile entry, which can differ from the fresh install (a package
       // whose entry records no `gypfile` gets `node-gyp rebuild`, which needs make and Python).
       if (!existsSync(join(project, 'package-lock.json'))) throw new Error('the install wrote no package-lock.json');
       rmSync(join(project, 'node_modules'), { recursive: true, force: true });
-      npmWithRetry(['ci', '--no-audit', '--no-fund'], { cwd: project });
+      await npmWithRetry(['ci', '--no-audit', '--no-fund'], { cwd: project });
       console.log(`reinstalled from package-lock.json with npm ci on Node ${process.version}`);
     }
 
