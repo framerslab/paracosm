@@ -381,6 +381,36 @@ test('a Clear that names a run the visitor has replaced stops nothing; one that 
   }, { runner: held.runner });
 });
 
+test('named Stop retains a finished run and leaves ordinary Clear available', async () => {
+  const held = heldRun();
+  await withVisitors(async ({ cookied }) => {
+    const visitor = cookied();
+    const first = await setup(visitor, settingsBody(mars));
+    const stream = await openStream(visitor);
+    const stop = async (runKey: unknown) => (await visitor.post('/clear', { runKey, stop: true })).json();
+    try {
+      const opening = await stream.next(frame => frame.event === 'active_scenario', 'opening run');
+      assert.equal(opening.data.payer, 'server');
+      const started = await waitFor(() => held.runs[0], 'first runner');
+      started.release();
+      await stream.next(frame => frame.event === 'complete', 'completed run');
+      assert.deepEqual(await stop(first.answer.runKey), { cleared: false, reason: 'ended' });
+      const results = await (await visitor.get('/results')).json() as { runKey?: string };
+      assert.equal(results.runKey, first.answer.runKey);
+      assert.deepEqual(await clearEmpty(visitor), { cleared: true, runKey: first.answer.runKey });
+
+      const next = await setup(visitor, settingsBody(mars));
+      const running = await waitFor(() => held.runs[1], 'second runner');
+      assert.deepEqual(await stop(first.answer.runKey), { cleared: false, reason: 'not_current' });
+      assert.equal(running.signal?.aborted, false);
+      assert.deepEqual(await stop(next.answer.runKey), { cleared: true, runKey: next.answer.runKey });
+      assert.equal(running.signal?.reason, 'user_aborted');
+    } finally {
+      stream.close();
+    }
+  }, { runner: held.runner, maxSimsPerDay: 0 });
+});
+
 test("Clear tells the visitor's other tabs, and nothing of the stopped run reaches them after", async () => {
   const held = heldRun();
   await withVisitors(async ({ cookied }) => {

@@ -95,6 +95,17 @@ if (scripted) {
         } else if (phase === 'result-first' || phase === 'result-second') {
           const leader = run.names[phase === 'result-first' ? 0 : 1];
           run.broadcast('result', watchPairResult(leader), leader);
+        } else if (phase === 'usage') {
+          for (const leader of run.names) {
+            run.broadcast('sim', { type: 'agent_reactions', leader, data: {
+              turn, _cost: { totalCostUSD: turn === 1 ? 0.2 : 0.85, totalTokens: 12400, llmCalls: 14 },
+            } }, leader);
+          }
+        } else if (phase === 'provider-error') {
+          const leader = run.names[0];
+          run.broadcast('sim', { type: 'provider_error', leader, data: { turn, kind: 'quota', message: 'Fixture quota exhausted' } }, leader);
+          run.broadcast('complete', { aborted: true });
+          run.finish?.();
         } else if (phase === 'verdict') {
           run.broadcast('verdict', watchPairVerdict(run.names));
           run.broadcast('complete', { timestamp: '2026-11-27T17:00:00.000Z' });

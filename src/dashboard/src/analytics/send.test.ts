@@ -167,3 +167,21 @@ test('full prompt opens reach only the allowed destinations with the fixed side'
   sendEvent(name, { side: 'marker' }, page.window);
   assert.deepEqual([page.posts.length, page.measures.length, page.recordings.length], [1, 1, 1]);
 });
+
+test('Watch entry, Stop and end use measure and record consent only', () => {
+  const events = [
+    ['watch_view', { size: 'pair', state: 'running' }],
+    ['watch_stop', { step: 'confirmed' }],
+    ['watch_end_seen', { kind: 'stopped', reached: 'key' }],
+  ] as const;
+  for (const choices of [null, [], ['count'], ['record'], ['measure'], ['count', 'measure', 'record']] as Array<Purpose[] | null>) {
+    const page = browser(choices);
+    for (const [name, fields] of events) sendEvent(name, fields, page.window);
+    sendEvent('watch_stop', { step: 'confirmed', run: 'private' }, page.window);
+    assert.deepEqual(page.posts, []);
+    assert.deepEqual(page.measures, choices?.includes('measure')
+      ? events.map(([name, fields]) => ['event', name, { ...fields, ...context }]) : []);
+    assert.deepEqual(page.recordings, choices?.includes('record')
+      ? events.map(([name]) => ['event', name]) : []);
+  }
+});

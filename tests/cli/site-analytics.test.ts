@@ -409,3 +409,13 @@ test('POST /api/event limits the addresses of one IPv6 /64 together, and forward
 test('the count endpoint does not forward Watch disclosures', () => {
   assert.equal(countedEvent(JSON.stringify({ n: 'watch_fold', u: '/sim', p: { fold: 'crisis' } })), null);
 });
+
+test('the count endpoint does not forward Watch run actions or impressions', () => {
+  for (const [n, p] of [
+    ['watch_view', { size: 'pair', state: 'saved' }],
+    ['watch_stop', { step: 'asked' }],
+    ['watch_end_seen', { kind: 'pair', reached: 'following' }],
+  ]) {
+    assert.equal(countedEvent(JSON.stringify({ n, u: '/sim', p })), null);
+  }
+});

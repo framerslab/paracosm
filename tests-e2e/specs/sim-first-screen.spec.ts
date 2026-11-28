@@ -2175,10 +2175,10 @@ screenTest('feature 10: own key and self-hosted', async ({ page }) => {
         await expect(key).toBeEnabled();
         await scrollToBandPlace(root);
         await expect(notice.getByTestId('notice-pays')).toHaveText(OWN_KEY_NOTICE);
-        // A run on the visitor's key counts no free run, and a pair shows no estimate.
+        // A run on the visitor's key counts no free run.
         await expect(notice.getByTestId('notice-count')).toHaveCount(0);
         await expect(notice).not.toContainText('Free runs left');
-        await expect(root.getByTestId('start-estimate')).toHaveCount(0);
+        await expect(root.getByTestId('start-estimate')).toContainText('about 1.30 USD on your key');
         await expect(runLine.getByTestId('run-end')).toHaveText('Verdict');
         expect(await measureReadability(page)).toEqual([]);
         await picture(page, `start-own-key-${size.width}-${look}`);

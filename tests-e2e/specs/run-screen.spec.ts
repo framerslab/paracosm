@@ -11,13 +11,16 @@ const pictures = 'test-pictures/run-screen-a';
 test.skip(!!process.env.PARACOSM_E2E_BASE_URL, 'The pair screen uses its own fixture server.');
 test.describe.configure({ mode: 'serial' });
 
-async function openPair(browser: Browser, origin: string, width: number, look: string, visitor: number, reducedMotion: 'reduce' | 'no-preference' = 'reduce') {
+async function openPair(browser: Browser, origin: string, width: number, look: string, visitor: number, reducedMotion: 'reduce' | 'no-preference' = 'reduce', ownKey = false) {
   const context = await browser.newContext({
     baseURL: origin, viewport: { width, height: width === 390 ? 844 : 900 },
     deviceScaleFactor: 2, reducedMotion,
     extraHTTPHeaders: { 'x-real-ip': `192.0.2.${visitor}` },
   });
   await context.addInitScript(theme => localStorage.setItem('paracosm-theme', theme), look);
+  if (ownKey) await context.addInitScript(() => {
+    sessionStorage.setItem('paracosm:keyOverrides', '{"openai":"sk-fixture"}');
+  });
   const page = await context.newPage();
   await page.goto('/sim?tab=quickstart');
   const reject = page.getByRole('button', { name: 'Reject all', exact: true });
@@ -418,5 +421,131 @@ test('one playhead follows the pair from Watch into Viz', async ({ browser }, in
     await expect(page.getByText('Turn 3: Ration the water for the greenhouse.', { exact: true }).first()).toBeVisible();
   } finally {
     await saved.close();
+  }
+});
+
+test('the run identifies its payer and stops only its own run', async ({ browser }, info) => {
+  test.setTimeout(180_000);
+  let visitor = 100 + info.retry * 12;
+  for (const [origin, width, look, payer, own] of [
+    [host, 390, 'dark', 'today’s free run', false],
+    [host, 1440, 'light', 'today’s free run', false],
+    ['http://127.0.0.1:3477', 1440, 'dark', 'on this server’s API keys', false],
+    [host, 390, 'light', 'on your own API key', true],
+  ] as const) {
+    const { context, page, runKey } = await openPair(browser, origin, width, look, visitor++, 'reduce', own);
+    try {
+      const run = page.getByRole('region', { name: 'Run', exact: true });
+      await expect(run).toContainText(payer);
+      await expect(run.getByRole('status')).toHaveText('Starting the run. Turn 1 is on its way.');
+      await release(page, runKey, 'usage', 1);
+      if (own) {
+        await expect(run).toContainText(/0\.40\sUSD of about 1\.30\sUSD/);
+        await expect(run).toContainText('Your provider’s bill can differ.');
+      }
+      for (const turn of [1, 2, 3]) {
+        await release(page, runKey, 'crisis', turn);
+        await release(page, runKey, 'decisions', turn);
+      }
+      await release(page, runKey, 'usage', 3);
+      await expect(page.getByRole('slider', { name: 'Run line' })).toHaveAttribute('aria-valuenow', '3');
+      await expect(run.getByRole('status')).toHaveText('Turn 4 is on its way.');
+      await page.evaluate(save => {
+        if (save) sessionStorage.setItem('paracosm:keyOverrides', '{"openai":"sk-fixture"}');
+        else sessionStorage.removeItem('paracosm:keyOverrides');
+      }, !own);
+      if (own) await expect(run).toContainText(/1\.70\sUSD, more than the 1\.30\sUSD/);
+      else {
+        await expect(page.getByText(/(?:USD|\d+k tokens|\d+ calls)/)).toHaveCount(0);
+        await expect(page.locator('[title*=" tokens"][title*=" calls"]')).toHaveCount(0);
+      }
+      const menu = page.getByRole('button', { name: 'Open run actions menu' });
+      const stop = page.getByRole('button', { name: 'Stop the run', exact: true });
+      const ask = async () => {
+        if (width < 600 && !own) {
+          await expect(stop).toHaveCount(0);
+          await menu.click();
+          await page.getByRole('menuitem', { name: 'Stop the run', exact: true }).click();
+        } else await stop.click();
+        const keep = page.getByRole('button', { name: 'Keep watching', exact: true });
+        await expect(keep).toBeFocused();
+        return keep;
+      };
+      await menu.click();
+      await page.getByRole('menuitem', { name: 'Run details', exact: true }).click();
+      const details = page.getByRole('region', { name: 'Run details' });
+      await expect(details).toContainText('Seed');
+      await expect(details).toContainText('Started');
+      await expect(details.getByRole('button', { name: 'Close' })).toBeFocused();
+      await details.getByRole('button', { name: 'Close' }).click();
+      await (await ask()).click();
+      await (await ask()).press('Escape');
+      await ask();
+      if (payer === 'today’s free run') await expect(page.getByText('Stopping keeps this free run used.')).toBeVisible();
+      await capture(page, 'after', `stop-confirm-${width}-${look}-${own ? 'own' : payer === 'today’s free run' ? 'host' : 'server'}`);
+      const second = await context.newPage();
+      await second.goto('/sim?tab=sim');
+      await expect(second.getByRole('slider', { name: 'Run line' })).toHaveAttribute('aria-valuenow', '3');
+      let posts = 0;
+      await page.route('**/clear', async route => {
+        posts++;
+        expect(route.request().postDataJSON()).toEqual({ runKey, stop: true });
+        if (width === 390 && !own) {
+          const reply = await route.fetch();
+          await expect(second.getByRole('heading', { name: 'No run yet.' })).toBeVisible();
+          await expect(page.getByRole('slider', { name: 'Run line' })).toHaveAttribute('aria-valuenow', '3');
+          await route.fulfill({ response: reply });
+        } else await route.continue();
+      });
+      await stop.click();
+      await expect(page.getByText('You stopped the run at turn 3.', { exact: true })).toBeVisible();
+      await expect(stop).toHaveCount(0);
+      expect(posts).toBe(1);
+      await expect(second.getByRole('heading', { name: 'No run yet.' })).toBeVisible();
+      await capture(page, 'after', `stopped-${width}-${look}-${own ? 'own' : payer === 'today’s free run' ? 'host' : 'server'}`);
+      await page.getByRole('button', { name: 'Back', exact: true }).click();
+      await expect(page.getByRole('slider', { name: 'Run line' })).toHaveAttribute('aria-valuenow', '2');
+      await page.unroute('**/clear');
+    } finally {
+      await page.request.post('/clear');
+      await context.close();
+    }
+  }
+
+  const { page, context, runKey } = await openPair(browser, host, 1440, 'dark', visitor++);
+  try {
+    const stop = page.getByRole('button', { name: 'Stop the run', exact: true });
+    for (const [status, body, message] of [
+      [403, {}, 'Stop did not reach the server.'],
+      [200, { cleared: true, runKey: 'wrong-run' }, 'Stop did not reach the server.'],
+      [200, { cleared: false, reason: 'not_current' }, 'Another run replaced this one.'],
+      [200, { cleared: false, reason: 'no_run' }, 'The run has already ended.'],
+    ] as const) {
+      await page.route('**/clear', route => route.fulfill({ status, json: body }), { times: 1 });
+      await stop.click();
+      await stop.click();
+      await expect(page.getByText(message, { exact: true })).toBeVisible();
+    }
+    await page.route('**/clear', route => route.abort(), { times: 1 });
+    await stop.click();
+    await stop.click();
+    await expect(page.getByText('Stop did not reach the server.', { exact: true })).toBeVisible();
+
+    await release(page, runKey, 'crisis', 5);
+    await release(page, runKey, 'decisions', 5);
+    await stop.click();
+    await release(page, runKey, 'crisis', 6);
+    await release(page, runKey, 'decisions', 6);
+    await release(page, runKey, 'verdict', 6);
+    await expect(page.getByText('The run is over.', { exact: true })).toBeVisible();
+    const response = page.waitForResponse(res => res.url().endsWith('/clear'));
+    await stop.click();
+    expect(await (await response).json()).toEqual({ cleared: false, reason: 'ended' });
+    await expect(page.getByText('The run has already ended.', { exact: true })).toBeVisible();
+    const current = await page.request.get('/results');
+    expect((await current.json()).runKey).toBe(runKey);
+  } finally {
+    await page.request.post('/clear');
+    await context.close();
   }
 });

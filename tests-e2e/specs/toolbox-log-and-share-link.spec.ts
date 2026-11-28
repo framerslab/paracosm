@@ -553,7 +553,7 @@ test.describe('the other copy keys and the Library\'s address', () => {
 
     // Exit Replay drops the replay and opens the live feed, a source of its own.
     const liveFeed = page.waitForResponse((response) => new URL(response.url()).pathname === '/events');
-    await page.getByRole('button', { name: 'EXIT REPLAY' }).click();
+    await page.getByRole('button', { name: 'Leave the replay' }).click();
     await liveFeed;
     // The feed's first frame follows its headers; give the page time to take it.
     await page.waitForTimeout(1_000);
@@ -596,7 +596,7 @@ test.describe('the other copy keys and the Library\'s address', () => {
   test('a Library search on a replay keeps the replay in the address, and a refresh reopens the replay with the search', async ({ page, request }) => {
     const id = await storedSessionId(request);
     await page.goto(`/sim?replay=${encodeURIComponent(id)}&tab=library`);
-    await expect(page.getByRole('status').filter({ hasText: /^REPLAYING/i })).toBeVisible();
+    await expect(page.getByRole('status').filter({ hasText: /^Watching a saved run/i })).toBeVisible();
     await expect(runCard(page)).toBeVisible();
 
     await page.getByRole('textbox', { name: 'Search runs' }).fill('mars');
@@ -606,7 +606,7 @@ test.describe('the other copy keys and the Library\'s address', () => {
     expect(params.get('tab')).toBe('library');
 
     await page.reload();
-    await expect(page.getByRole('status').filter({ hasText: /^REPLAYING/i })).toBeVisible();
+    await expect(page.getByRole('status').filter({ hasText: /^Watching a saved run/i })).toBeVisible();
     await expect(page.getByRole('textbox', { name: 'Search runs' })).toHaveValue('mars');
     await expect(runCard(page)).toBeVisible();
   });
@@ -701,7 +701,7 @@ test.describe('the run actions menu', () => {
     const id = await storedSessionId(request);
     await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: SERVER });
     await page.goto(`/sim?replay=${encodeURIComponent(id)}&tab=sim`);
-    await expect(page.getByRole('status').filter({ hasText: /^REPLAYING/i })).toBeVisible();
+    await expect(page.getByRole('status').filter({ hasText: /^Watching a saved run/i })).toBeVisible();
     await page.getByRole('button', { name: 'Open run actions menu' }).click();
     await page.getByRole('menuitem', { name: /Share viz link/ }).click();
     await expectShareNote(page, id, 'Link copied.');
@@ -717,7 +717,7 @@ test.describe('the run actions menu', () => {
     const id = await storedSessionId(request);
     await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: SERVER });
     await page.goto(`/sim?replay=${encodeURIComponent(id)}&tab=sim`);
-    await expect(page.getByRole('status').filter({ hasText: /^REPLAYING/i })).toBeVisible();
+    await expect(page.getByRole('status').filter({ hasText: /^Watching a saved run/i })).toBeVisible();
     await page.getByRole('button', { name: 'Open run actions menu' }).click();
     await page.getByRole('menuitem', { name: /Share viz link/ }).click();
     await expectShareNote(page, id, 'Link copied.');
@@ -748,7 +748,7 @@ test.describe('the run actions menu', () => {
     const id = await storedSessionId(request);
     await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: SERVER });
     await page.goto(`/sim?replay=${encodeURIComponent(id)}&tab=sim`);
-    await expect(page.getByRole('status').filter({ hasText: /^REPLAYING/i })).toBeVisible();
+    await expect(page.getByRole('status').filter({ hasText: /^Watching a saved run/i })).toBeVisible();
     await page.getByRole('button', { name: 'Open run actions menu' }).click();
     await page.getByRole('menuitem', { name: /Share viz link/ }).click();
 
@@ -758,7 +758,7 @@ test.describe('the run actions menu', () => {
     await page.getByRole('button', { name: 'Open run actions menu' }).click({ trial: true, timeout: 5_000 });
 
     // The note is about this run: once the page leaves the replay, it goes.
-    await page.getByRole('button', { name: 'EXIT REPLAY' }).click();
+    await page.getByRole('button', { name: 'Leave the replay' }).click();
     await expect(page.getByRole('status', { name: 'Share link' })).toHaveCount(0);
 
     // A browser with none of this visitor's storage opens the link and watches the run.
@@ -766,7 +766,7 @@ test.describe('the run actions menu', () => {
     try {
       const visitor = await other.newPage();
       await visitor.goto(shareUrl(id));
-      await expect(visitor.getByRole('status').filter({ hasText: /^REPLAYING/i })).toBeVisible();
+      await expect(visitor.getByRole('status').filter({ hasText: /^Watching a saved run/i })).toBeVisible();
       // The banner shows before the stream answers; the turn counter reaches
       // the run's last turn only when the run's events have arrived.
       await expect(visitor.getByRole('progressbar', { name: 'Simulation progress, turn 2 of 2' })).toBeVisible({ timeout: 30_000 });

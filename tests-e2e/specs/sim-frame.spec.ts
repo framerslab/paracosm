@@ -165,7 +165,7 @@ async function geometry(page: Page) {
 }
 
 const runMenu = (page: Page) => page.getByRole('button', { name: 'RUN', exact: true });
-const replayStatus = (page: Page) => page.getByRole('status').filter({ hasText: /^REPLAYING/i });
+const replayStatus = (page: Page) => page.getByRole('status').filter({ hasText: /^Watching a saved run/i });
 const runStatus = (page: Page) => page.getByRole('region', { name: 'Run status' });
 const savedPair = (page: Page) => page.getByRole('region', { name: 'Saved runs' })
   .getByRole('link', { name: /(?=.*Aria Chen)(?=.*Dietrich Voss)(?=.*Mars Genesis)/i });

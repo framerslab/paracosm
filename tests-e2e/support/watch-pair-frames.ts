@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import type { RunArtifact } from '../../src/engine/schema/index.js';
 import { crewOf, framesToSimEvents, leaderTurn, systemsSnapshot } from './run-frames.js';
 
-export const watchPhases = ['crisis', 'departments', 'decisions', 'result-first', 'result-second', 'verdict'] as const;
+export const watchPhases = ['crisis', 'departments', 'decisions', 'result-first', 'result-second', 'verdict', 'usage', 'provider-error'] as const;
 export type WatchPhase = typeof watchPhases[number];
 
 const artifact = JSON.parse(readFileSync(
