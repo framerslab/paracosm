@@ -16,6 +16,8 @@ import { openTab } from '../support/frame.js';
  */
 import { test, expect, type Page } from '@playwright/test';
 import { waitForRunConnection } from '../support/frame.js';
+import { marsScenario } from '../../src/engine/scenarios/index.js';
+import { SimulationKernel } from '../../src/engine/core/kernel.js';
 
 interface SetupBody {
   actors: Array<{ name: string }>;
@@ -42,13 +44,13 @@ async function openSettings(page: Page): Promise<void> {
   await expect(settingsLaunch(page)).toBeEnabled();
 }
 
-/** A saved run file, as the dashboard's Save writes it: two turns and a forkable artifact. */
-function savedRun(scenarioId: string, name: string, leader: string) {
+/** A saved run file, as the dashboard's Save writes it, with a forkable artifact. */
+function savedRun(scenarioId: string, name: string, leader: string, turns = [1, 2]) {
   return {
     schemaVersion: 3,
     startedAt: '2026-11-02T00:00:00.000Z',
     completedAt: '2026-11-02T00:10:00.000Z',
-    events: [1, 2].flatMap(turn => ['turn_start', 'turn_done'].map(type => ({
+    events: turns.flatMap(turn => ['turn_start', 'turn_done'].map(type => ({
       type, leader, data: { turn, time: turn, title: `${name} turn ${turn}` },
     }))),
     results: [{
@@ -58,7 +60,7 @@ function savedRun(scenarioId: string, name: string, leader: string) {
       artifact: {
         metadata: { runId: `parent-${scenarioId}`, scenario: { id: scenarioId, name }, mode: 'turn-loop', startedAt: '2026-11-02T00:00:00.000Z', seed: 11 },
         scenarioExtensions: {
-          kernelSnapshotsPerTurn: [1, 2].map(turn => ({
+          kernelSnapshotsPerTurn: turns.map(turn => ({
             snapshotVersion: 1, scenarioId, turn, time: turn, state: {}, rngState: 0, startTime: 1, seed: 11,
           })),
         },
@@ -350,6 +352,58 @@ test.describe('Scenario per visitor @scenario', () => {
     await expect(page.locator('#turn-1')).toBeVisible();
     await expect(page.getByRole('note')).toContainText('This run is in Atlas Lab');
     await expect(forkButton()).toHaveCount(0);
+  });
+
+  test('custom events must name a year the fork will play', async ({ page, baseURL }) => {
+    const { id, labels, setup } = marsScenario;
+    const leader = 'Aria Chen';
+    const turns = Array.from({ length: setup.defaultTurns }, (_, index) => index + 1);
+    const run = savedRun(id, labels.name, leader, turns);
+    const kernel = new SimulationKernel(11, leader, [], { startTime: setup.defaultStartTime, scenario: marsScenario });
+    run.results[0].artifact.scenarioExtensions.kernelSnapshotsPerTurn = turns.map(turn => {
+      kernel.advanceTurn(turn, setup.defaultStartTime + turn, marsScenario.hooks?.progressionHook);
+      return kernel.toSnapshot(id);
+    });
+    const fileUrl = `${baseURL}/saved-runs/${id}.json`;
+    await page.route(fileUrl, async route => {
+      await waitForRunConnection(page);
+      await route.fulfill({ json: run });
+    });
+    await page.goto(`/sim?load=${encodeURIComponent(fileUrl)}&autoload=1&tab=reports`);
+    await page.getByRole('button', { name: 'Fork at Year 3' }).click();
+
+    const dialog = page.getByRole('dialog', { name: 'Fork at Year 3' });
+    await dialog.getByText('Advanced: custom events', { exact: true }).click();
+    const events = dialog.getByRole('textbox');
+    const fork = dialog.getByRole('button', { name: 'Fork', exact: true });
+    const message = 'Line 1 is for Year 3. This fork starts at Year 4.';
+    const status = dialog.getByRole('status').filter({ hasText: message });
+    const supplyDrop = 'Supply drop: Relief arrives with 3 months of food.';
+
+    await events.fill(`3: ${supplyDrop}`);
+    await expect(status).toBeVisible();
+    await expect(events).toHaveAccessibleDescription(`Fork is disabled until you fix or remove these lines. ${message}`);
+    await expect(fork).toBeDisabled();
+
+    if (process.env.FORK_EVENT_PICTURES) {
+      const notifications = page.getByRole('status', { name: 'Notifications' });
+      await expect(notifications.getByRole('button', { name: 'Dismiss', exact: true })).toHaveCount(0);
+      for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 960 }]) {
+        await page.setViewportSize(viewport);
+        for (const look of ['dark', 'light'] as const) {
+          await page.emulateMedia({ colorScheme: look, reducedMotion: 'reduce' });
+          await expect(page.locator('html')).toHaveCSS('color-scheme', look);
+          await page.screenshot({
+            path: `test-pictures/fork-events/${viewport.width}-${look}.png`,
+            animations: 'disabled',
+          });
+        }
+      }
+    }
+
+    await events.fill(`4: ${supplyDrop}`);
+    await expect(status).toHaveCount(0);
+    await expect(fork).toBeEnabled();
   });
 
   test('a run loaded from a file before the page knows its scenario stays once it does', async ({ page, baseURL }) => {

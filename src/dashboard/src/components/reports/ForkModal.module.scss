@@ -123,6 +123,18 @@
   font-family: var(--sans);
 }
 
+.hint.eventFeedback {
+  font-size: var(--font-read);
+
+  p {
+    margin: 0;
+  }
+
+  p + p {
+    margin-top: 4px;
+  }
+}
+
 .warning {
   color: var(--rust);
   font-size: var(--font-sm);

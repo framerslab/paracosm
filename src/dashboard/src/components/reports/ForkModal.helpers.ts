@@ -84,32 +84,56 @@ export function estimateForkCost(
   return `~$${rounded.toFixed(2)}`;
 }
 
+type CustomEvent = { turn: number; title: string; description: string };
+
+/** Whether a non-empty custom-event line will be used by the fork. */
+export type CustomEventLine =
+  | { lineNumber: number; status: 'used'; event: CustomEvent }
+  | { lineNumber: number; status: 'before-fork' | 'after-fork'; turn: number }
+  | { lineNumber: number; status: 'malformed' };
+
+function parseCustomEventLine(line: string): CustomEvent | undefined {
+  const match = /^(\d+)\s*:\s*([^:]+?)\s*:\s*(.+)$/.exec(line);
+  if (!match) return undefined;
+  const title = match[2].trim();
+  if (!title) return undefined;
+  return { turn: parseInt(match[1], 10), title, description: match[3].trim() };
+}
+
 /**
- * Parse the fork modal's custom-events textarea. One event per line,
- * format: `{turn}: {title}: {description}`. Lines without a turn
- * prefix, empty title, or malformed structure are silently dropped.
- * Shape matches {@link RunOptions.customEvents} so the parsed output
- * can be forwarded directly to `/setup`.
- *
- * @param input Raw textarea value.
- * @returns Array of `{ turn, title, description }`.
+ * Parse lines in `turn: title: description` form into the event payload for
+ * `/setup`. Use {@link inspectCustomEventLines} for line-by-line feedback
+ * and the playable turn range.
  */
-export function parseCustomEvents(
-  input: string,
-): Array<{ turn: number; title: string; description: string }> {
-  const events: Array<{ turn: number; title: string; description: string }> = [];
-  for (const rawLine of input.split('\n')) {
+export function parseCustomEvents(input: string): CustomEvent[] {
+  return input.split('\n').flatMap(rawLine => {
+    const event = parseCustomEventLine(rawLine.trim());
+    return event ? [event] : [];
+  });
+}
+
+/**
+ * Inspect each non-empty line against the turns the fork will play,
+ * from the turn after its snapshot through the final turn, inclusive.
+ */
+export function inspectCustomEventLines(input: string, atTurn: number, maxTurns: number): CustomEventLine[] {
+  const lines: CustomEventLine[] = [];
+  for (const [index, rawLine] of input.split('\n').entries()) {
     const line = rawLine.trim();
     if (!line) continue;
-    const match = /^(\d+)\s*:\s*([^:]+?)\s*:\s*(.+)$/.exec(line);
-    if (!match) continue;
-    const turn = parseInt(match[1], 10);
-    const title = match[2].trim();
-    const description = match[3].trim();
-    if (!title) continue;
-    events.push({ turn, title, description });
+    const lineNumber = index + 1;
+    const event = parseCustomEventLine(line);
+    if (!event) {
+      lines.push({ lineNumber, status: 'malformed' });
+    } else if (event.turn <= atTurn) {
+      lines.push({ lineNumber, status: 'before-fork', turn: event.turn });
+    } else if (event.turn > maxTurns) {
+      lines.push({ lineNumber, status: 'after-fork', turn: event.turn });
+    } else {
+      lines.push({ lineNumber, status: 'used', event });
+    }
   }
-  return events;
+  return lines;
 }
 
 /** The snapshots a saved run holds for replay alone (#235); a fork branches from `kernelSnapshotsPerTurn`. */

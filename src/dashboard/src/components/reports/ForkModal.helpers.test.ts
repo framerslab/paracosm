@@ -4,7 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { resolveLeaderPresets, estimateForkCost, parseCustomEvents, canForkAtTurn, forkFinalTurn, forkParentForPost } from './ForkModal.helpers.js';
+import { resolveLeaderPresets, estimateForkCost, parseCustomEvents, inspectCustomEventLines, canForkAtTurn, forkFinalTurn, forkParentForPost } from './ForkModal.helpers.js';
 import { marsScenario } from '../../../../engine/scenarios/index.js';
 import type { ActorConfig } from '../../../../engine/types.js';
 
@@ -113,6 +113,28 @@ test('parseCustomEvents: empty, whitespace, and malformed lines are dropped', ()
   assert.equal(events[0].turn, 4);
   assert.equal(events[0].title, 'valid');
   assert.equal(events[0].description, 'yes');
+});
+
+test('inspectCustomEventLines: explains every unusable line and keeps the first and last playable years', () => {
+  const maxTurns = marsScenario.setup.defaultTurns;
+  const input = [
+    '3: Supply drop: Relief arrives with 3 months of food.',
+    '2: Dust storm: Solar output drops.',
+    '  ',
+    '4: Survey: Check the reserve: water first.',
+    `${maxTurns}: Arrival: The next crew lands.`,
+    `${maxTurns + 1}: Handover: The new crew takes over.`,
+    'No event fields',
+  ].join('\n');
+
+  assert.deepEqual(inspectCustomEventLines(input, 3, maxTurns), [
+    { lineNumber: 1, status: 'before-fork', turn: 3 },
+    { lineNumber: 2, status: 'before-fork', turn: 2 },
+    { lineNumber: 4, status: 'used', event: { turn: 4, title: 'Survey', description: 'Check the reserve: water first.' } },
+    { lineNumber: 5, status: 'used', event: { turn: maxTurns, title: 'Arrival', description: 'The next crew lands.' } },
+    { lineNumber: 6, status: 'after-fork', turn: maxTurns + 1 },
+    { lineNumber: 7, status: 'malformed' },
+  ]);
 });
 
 test('canForkAtTurn: no fork at the run\'s last turn, where nothing is left to run', () => {
