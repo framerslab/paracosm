@@ -125,6 +125,21 @@ test('Watch disclosures measure only with the fixed dashboard context', () => {
   }
 });
 
+test('Watch playback measures explicit actions with the fixed vocabulary', () => {
+  for (const choices of [null, ['count', 'record'], ['measure'], ['count', 'measure', 'record']] as Array<Purpose[] | null>) {
+    const page = browser(choices);
+    sendEvent('watch_play', { key: 'speed_half' }, page.window);
+    sendEvent('watch_turn_pick', {}, page.window);
+    sendEvent('watch_turn_pick', { turn: 3 }, page.window);
+    sendEvent('watch_play', { key: 'auto' }, page.window);
+    assert.deepEqual(page.posts, []);
+    assert.deepEqual(page.recordings, []);
+    assert.deepEqual(page.measures, choices?.includes('measure')
+      ? [['event', 'watch_play', { key: 'speed_half', ...context }], ['event', 'watch_turn_pick', context]]
+      : []);
+  }
+});
+
 test('full prompt opens reach only the allowed destinations with the fixed side', () => {
   const name = 'qs_prompt_open';
   const choices: Purpose[] = [];

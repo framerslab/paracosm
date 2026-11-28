@@ -4,6 +4,8 @@ import {
   createDashboardTabHref,
   createSettingsKeyHref,
   createToolLogHref,
+  createWatchTurnHref,
+  watchTurnFromHref,
   getDashboardTabFromHref,
   requestsSettingsKeyFocus,
   resolveSetupRedirectHref,
@@ -70,4 +72,16 @@ test('a key link names the field of the provider that refused the key', () => {
   assert.equal(settingsKeyFocusField('http://localhost:3456/sim?tab=settings#key-anthropic'), 'anthropic');
   assert.equal(settingsKeyFocusField('http://localhost:3456/sim?tab=sim&focus=api-key'), null);
   assert.equal(requestsSettingsKeyFocus('http://localhost:3456/sim?tab=settings'), false);
+});
+
+test('Watch turn addresses survive tab changes and preserve the replay and other route state', () => {
+  const href = 'http://localhost:3456/sim?replay=run&tab=sim&watchPlace=2#evidence';
+  const selected = createWatchTurnHref(href, 3);
+  assert.equal(selected, 'http://localhost:3456/sim?replay=run&tab=sim&watchPlace=2&watchTurn=3#evidence');
+  assert.equal(watchTurnFromHref(createDashboardTabHref(selected, 'viz')), 3);
+  assert.equal(createWatchTurnHref(selected, null), href);
+  assert.equal(watchTurnFromHref(createWatchTurnHref(href, 'end')), 'end');
+  for (const invalid of ['0', '1.5', '-1', '01', '101', '1e1', 'NaN']) {
+    assert.equal(watchTurnFromHref(href.replace('#', '&watchTurn=' + invalid + '#')), null, invalid);
+  }
 });

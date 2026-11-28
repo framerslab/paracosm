@@ -46,6 +46,7 @@ export function watchPairVerdict(names: string[]) {
 
 const departments = ['medical', 'engineering', 'agriculture'];
 const choices = ['Ration the water for the greenhouse.', 'Keep a reserve of water.'];
+const replayNames = ['Aria Chen', 'Dietrich Voss'];
 const outcomes = ['risky_success', 'conservative_success', 'risky_failure', 'conservative_failure'];
 
 export function watchPairFrames(names: string[], phase: 'crisis' | 'departments' | 'decisions', turn: number) {
@@ -68,7 +69,7 @@ export function watchPairFrames(names: string[], phase: 'crisis' | 'departments'
       if (phase === 'crisis') return [{ ...event, data: { ...event.data, ...fields, title, description: 'Choose a site with enough water to support the colony. The nearest site has deep ice but very little power. Another site has more room for panels and fewer places to drill. Both colonies must decide before the next storm.', aiWrittenFields: ['title', 'description'] } }];
       if (phase === 'departments') return [department, report, pending].map(frame => ({ ...frame, data: { ...frame.data, ...fields } }));
       return [
-        { ...decision, data: { ...decision.data, ...fields, decision: choices[place], selectedPolicies: ['Retain a reserve'], aiWrittenFields: fallback ? [] : ['decision', 'rationale', 'reasoning', 'selectedPolicies'] } },
+        { ...decision, data: { ...decision.data, ...fields, decision: turn <= 2 ? choices[place] : `Turn ${turn}: ${choices[place]}`, selectedPolicies: ['Retain a reserve'], aiWrittenFields: fallback ? [] : ['decision', 'rationale', 'reasoning', 'selectedPolicies'] } },
         { ...outcome, data: {
           ...outcome.data, ...fields, outcome: outcomes[slot % outcomes.length], systemDeltas: { morale: 0.02, population: -1 },
           ...(bar === undefined || turn === 2 ? {} : { barCheck: { bar, boldChance, clearsBar, choseBold, departs: clearsBar !== choseBold, departureFact, unexplained: false } }),
@@ -78,6 +79,20 @@ export function watchPairFrames(names: string[], phase: 'crisis' | 'departments'
     if (phase === 'crisis') return [{ ...start, data: { ...start.data, ...at, title, totalEvents: count } }, ...indexed];
     if (phase === 'departments') return indexed;
     const [snapshot] = framesToSimEvents([systemsSnapshot(name, turn, time, crewOf(name, turn, departments, 8 + turn + place))]);
-    return [...indexed, snapshot, { ...done, data: { ...done.data, ...at, metrics: { morale: 0.87, population: 8 + turn + place } } }];
+    return [...indexed, ...(turn === 4 && place === 1 ? [] : [snapshot]), { ...done, data: { ...done.data, ...at, metrics: { morale: 0.87, population: 8 + turn + place, ...(turn === 4 && place === 1 ? {} : { powerKw: 400 + turn * 10 + place }) } } }];
   });
+}
+
+/** A saved pair made from the same recorded frames as the live fixture. */
+export function watchPairReplay(turns: number, stopped = false) {
+  const events = Array.from({ length: turns }, (_, i) =>
+    (['crisis', 'departments', 'decisions'] as const).flatMap(phase => watchPairFrames(replayNames, phase, i + 1)),
+  ).flat();
+  return {
+    schemaVersion: 3,
+    events: stopped
+      ? [...events, { type: 'sim_aborted', data: { reason: 'user_aborted', completedTurns: turns } }]
+      : events,
+    ...(stopped ? {} : { verdict: watchPairVerdict(replayNames) }),
+  };
 }

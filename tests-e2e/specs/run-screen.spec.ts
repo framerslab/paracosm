@@ -1,7 +1,7 @@
 import { mkdir } from 'node:fs/promises';
 import { test, expect, type Browser, type Locator, type Page } from '@playwright/test';
-import { openTab } from '../support/frame.js';
-import type { WatchPhase } from '../support/watch-pair-frames.js';
+import { openTab, waitForRunConnection } from '../support/frame.js';
+import { watchPairReplay, type WatchPhase } from '../support/watch-pair-frames.js';
 import { pressStart } from '../support/start-run.js';
 
 const host = 'http://127.0.0.1:3476';
@@ -202,5 +202,197 @@ test('one turn compares the two decisions while they arrive', async ({ browser }
         await context.close();
       }
     }
+  }
+});
+
+async function loadPairRecording(page: Page, turns: number, stopped = false) {
+  const preview = page.getByRole('dialog', { name: 'Load simulation' });
+  await expect(async () => {
+    await page.evaluate(text => {
+      const transfer = new DataTransfer();
+      transfer.items.add(new File([text], 'saved-pair.json', { type: 'application/json' }));
+      for (const type of ['dragenter', 'dragover', 'drop']) {
+        window.dispatchEvent(new DragEvent(type, { dataTransfer: transfer, bubbles: true, cancelable: true }));
+      }
+    }, JSON.stringify(watchPairReplay(turns, stopped)));
+    await expect(preview).toBeVisible({ timeout: 3_000 });
+  }).toPass({ timeout: 30_000 });
+  await preview.getByRole('button', { name: /^(Load|Load anyway|Replace current simulation)$/ }).click();
+  await expect(preview).toHaveCount(0);
+}
+
+test('one playhead follows the pair from Watch into Viz', async ({ browser }, info) => {
+  test.setTimeout(240_000);
+  const { page, context, runKey } = await openPair(browser, host, 1440, 'dark', 40 + info.retry);
+  const watch = page.locator('#tabpanel-sim');
+  const line = page.getByRole('slider', { name: 'Run line' });
+  const turn = (value: number) => expect(line).toHaveAttribute('aria-valuenow', String(value));
+  const key = (name: string | RegExp) => watch.getByRole('button', { name });
+  const mark = (value: number) => line.locator(`[data-run-mark="${value}"]`);
+  const fields = (root: Locator, value: number) => root.getByRole('img', { name: new RegExp(`colony, turn ${value}\\b`, 'i') });
+  const sendTurn = async (n: number) => {
+    for (const phase of ['crisis', 'departments', 'decisions'] as const) await release(page, runKey, phase, n);
+  };
+  const pace = async (speed: string) => {
+    await key(/^Speed,/).click();
+    await expect(watch.getByRole('menu', { name: 'Pace of the turns that have arrived' })).toBeVisible();
+    await watch.getByRole('menuitemradio', { name: speed, exact: true }).click();
+    await expect(key(`Speed, ${speed}`)).toBeFocused();
+  };
+  try {
+    await expect(line).toHaveAttribute('aria-valuenow', '0');
+    await expect(mark(1)).toHaveAttribute('data-pending', 'true');
+    await expect(key('Back')).toBeDisabled();
+    await sendTurn(1);
+    await turn(1);
+    await expect(mark(1)).toHaveAttribute('data-selected', 'true');
+    for (const n of [2, 3]) await sendTurn(n);
+    await turn(3);
+    await expect(mark(4)).toHaveAttribute('data-pending', 'true');
+    await expect(mark(3)).toHaveAttribute('data-selected', 'true');
+    await expect(fields(watch, 3)).toHaveCount(2);
+    await expect(watch.getByRole('region', { name: 'Leader statistics' }).getByText('430', { exact: true })).toBeVisible();
+
+    await key('Pause').click();
+    await expect(key('Play')).toBeVisible();
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await capture(page, 'after', 'held-1440-dark');
+    await sendTurn(4);
+    await turn(3);
+    await expect(key('Turn 4 is in')).toBeEnabled();
+    await expect(watch.getByText('Turn 3: Ration the water for the greenhouse.', { exact: true }).first()).toBeVisible();
+    await expect(fields(watch, 3)).toHaveCount(2);
+    await expect(watch.getByRole('region', { name: 'Leader statistics' }).getByText('430', { exact: true })).toBeVisible();
+
+    await openTab(page, 'viz');
+    await expect(fields(page.locator('#tabpanel-viz'), 3)).toHaveCount(2);
+    await openTab(page, 'sim');
+    await turn(3);
+    await expect(mark(3)).toHaveAttribute('data-selected', 'true');
+    await page.reload();
+    await turn(3);
+    await expect(page).toHaveURL(/[?&]watchTurn=3\b/);
+    await expect(fields(watch, 3)).toHaveCount(2);
+
+    await context.setOffline(true);
+    await line.focus();
+    await line.press('Home');
+    await turn(1);
+    await expect(key('Back')).toBeDisabled();
+    await line.press('ArrowRight');
+    await turn(2);
+    await context.setOffline(false);
+    await expect(page.getByRole('main')).toHaveAttribute('data-run-connection', 'connected');
+    await turn(2);
+
+    await mark(1).click();
+    await expect(watch.locator('#watch-turn-heading')).toBeFocused();
+    const disclosure = key('Read the whole crisis').first();
+    await disclosure.focus();
+    await disclosure.press('Space');
+    await expect(disclosure).toHaveAttribute('aria-expanded', 'true');
+    await expect(key('Play')).toBeVisible();
+    await line.focus();
+    await line.press('End');
+    await turn(4);
+    await expect(fields(watch, 4)).toHaveCount(1);
+    await expect(fields(watch, 3)).toHaveCount(1);
+    await expect(watch.getByText('Figure unavailable', { exact: true }).first()).toBeVisible();
+    await expect(key('Forward')).toBeDisabled();
+
+    for (const speed of ['0.5x', '4x', '2x', '1x']) await pace(speed);
+    await page.clock.install();
+    await line.press('Home');
+    await turn(1);
+    await key('Play').click();
+    await page.clock.fastForward(29_000);
+    await turn(1);
+    await page.clock.fastForward(1_000);
+    await turn(2);
+    await key('Pause').click();
+    await pace('2x');
+    await key('Play').click();
+    await page.clock.fastForward(14_000);
+    await turn(2);
+    await page.clock.fastForward(1_000);
+    await turn(3);
+    await key('Pause').click();
+    await key('Turn 4 is in').click();
+    await turn(4);
+    await expect(key('Latest')).toBeDisabled();
+
+    for (const width of [320, 360, 390, 430, 480, 600, 768, 1100, 1440]) {
+      await page.setViewportSize({ width, height: 900 });
+      const keys = await watch.locator('[data-watch-play-keys] button').evaluateAll(buttons =>
+        buttons.map(button => button.getBoundingClientRect().toJSON() as DOMRect),
+      );
+      if (width < 768) {
+        expect(keys).toHaveLength(5);
+        expect(new Set(keys.map(box => box.y)).size).toBe(1);
+        for (const box of keys) {
+          expect(box.width).toBeGreaterThanOrEqual(44);
+          expect(box.height).toBeGreaterThanOrEqual(44);
+        }
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    }
+
+    await sendTurn(5);
+    await sendTurn(6);
+    await turn(6);
+    await key('Pause').click();
+    await release(page, runKey, 'verdict');
+    await expect(watch.getByText('The verdict is in. Press Latest to see it, or keep going and it follows turn 6.')).toBeVisible();
+    await expect(watch.getByText('Stored water protected the colony.', { exact: true })).toHaveCount(0);
+    await key('Latest').click();
+    await expect(line).toHaveAttribute('aria-valuetext', 'Verdict');
+    await expect(key('Back')).toHaveCount(0);
+    await expect(key('Forward')).toHaveCount(0);
+    await expect(key('Latest')).toHaveCount(0);
+    await expect(watch.getByText('Stored water protected the colony.', { exact: true })).toBeVisible();
+    await capture(page, 'after', 'finish-1440-dark');
+    await key('Play from turn 1').click();
+    await turn(1);
+    await expect(key('Latest')).toHaveCount(0);
+    await page.clock.fastForward(15_000);
+    await turn(2);
+    await key('Back').click();
+    await turn(1);
+  } finally {
+    await page.request.post('/clear');
+    await context.close();
+  }
+
+  const saved = await browser.newContext({ baseURL: host, viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' });
+  try {
+    const page = await saved.newPage();
+    await page.goto('/sim?tab=sim');
+    await waitForRunConnection(page);
+    const reject = page.getByRole('button', { name: 'Reject all', exact: true });
+    if (await reject.isVisible()) await reject.click();
+    const line = page.getByRole('slider', { name: 'Run line' });
+    for (const total of [12, 100]) {
+      await loadPairRecording(page, total);
+      await expect(line).toHaveAttribute('aria-valuetext', 'Verdict');
+      await expect(line.locator('[data-run-mark]:not([data-run-mark="end"])')).toHaveCount(total);
+      await expect(line.locator('[data-run-number]:visible')).toHaveCount(total === 100 ? 10 : total);
+      await line.press('Home');
+      await line.press('ArrowRight');
+      await expect(line).toHaveAttribute('aria-valuenow', '2');
+      await page.setViewportSize({ width: 390, height: 844 });
+      await line.press('ArrowRight');
+      await expect(line).toHaveAttribute('aria-valuetext', `Turn 3 of ${total} on screen`);
+      await expect(line.locator('[data-run-number]:visible')).toHaveCount(0);
+      await page.setViewportSize({ width: 1440, height: 900 });
+    }
+    await loadPairRecording(page, 3, true);
+    await expect(line.locator('[data-run-mark="3"]')).toHaveAttribute('data-interrupted', 'true');
+    await expect(line).toHaveAttribute('aria-valuenow', '3');
+    await line.press('ArrowLeft');
+    await expect(line).toHaveAttribute('aria-valuenow', '2');
+    await line.press('ArrowRight');
+    await expect(line).toHaveAttribute('aria-valuenow', '3');
+  } finally {
+    await saved.close();
   }
 });

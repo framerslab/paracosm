@@ -419,7 +419,8 @@ test.describe('the other copy keys and the Library\'s address', () => {
       if (/clipboard|writeText/i.test(error.message)) clipboardErrors.push(error.message);
     });
     await page.goto(`/sim?replay=${encodeURIComponent(id)}&tab=sim`);
-    await expect(page.getByRole('progressbar', { name: 'Simulation progress, turn 2 of 2' })).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole('slider', { name: 'Run line' })).toHaveAttribute('aria-valuenow', '2', { timeout: 30_000 });
+    await expect(page.getByRole('slider', { name: 'Run line' })).toHaveAttribute('aria-valuetext', 'Verdict');
     await page.getByRole('button', { name: 'Open run actions menu' }).click();
     await page.getByRole('menuitem', { name: 'Copy', exact: true }).click();
 
@@ -537,7 +538,8 @@ test.describe('the other copy keys and the Library\'s address', () => {
   test('a verdict the visitor collapsed stays collapsed when Exit Replay connects the live feed', async ({ page, request }) => {
     const id = await storedSessionId(request);
     await page.goto(`/sim?replay=${encodeURIComponent(id)}&tab=sim`);
-    await expect(page.getByRole('progressbar', { name: 'Simulation progress, turn 2 of 2' })).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole('slider', { name: 'Run line' })).toHaveAttribute('aria-valuenow', '2', { timeout: 30_000 });
+    await expect(page.getByRole('slider', { name: 'Run line' })).toHaveAttribute('aria-valuetext', 'Verdict');
     await dropSavedRun(page, SAVED_RUN_WITH_VERDICT);
     await page.getByRole('button', { name: 'Collapse verdict' }).click();
     await expect(page.getByRole('button', { name: 'Expand verdict' })).toBeVisible();
