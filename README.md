@@ -98,7 +98,7 @@ With `captureSnapshots: true` the turn loop saves, beside each turn's end-of-tur
 >
 > Stanislaw Lem, *Solaris*, 1961
 
-Every comparison in paracosm holds the scenario, the seed and the dice fixed and changes one thing. The commonest is the actor’s personality.
+By default a comparison in paracosm holds the scenario, the seed and the dice fixed and changes one thing. The commonest is the actor’s personality. A fork can also change the seed.
 
 Two simulation runs against an identical compiled scenario, starting from the same kernel state, produce divergent trajectories when the only thing that changes is the actor's personality. The kernel is reproducible. The divergence comes from the LLM stages reading a HEXACO profile and deciding accordingly. Both runs roll the same dice for the same person, so the people who die on one side and not the other are the ones whose world that run changed: a habitat that shields more of the dose, supplies held above what the colony landed with, morale that holds, a department that keeps them off the airlock. On Mars Genesis, which keeps one death die for each person and cause for a life, a person both sides lose dies no earlier on the side that gave them better chances in every year.
 
