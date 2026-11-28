@@ -40,7 +40,8 @@ async function open(browser: Browser, host: string = SERVERS.demo, options: Brow
     if (request.method() !== 'POST' || url.pathname !== '/api/event') return;
     posts.push(request);
     const payload = request.postDataJSON();
-    if (payload.n !== 'pageview') requests.push(payload);
+    // The landing page's own events (lp_*) are tests-e2e/specs/landing-first-screen.spec.ts's.
+    if (payload.n !== 'pageview' && !String(payload.n).startsWith('lp_')) requests.push(payload);
   });
   const assertEvents = async (expected: Event[]) => {
     await expect.poll(() => requests.slice()).toEqual(expected);
@@ -53,7 +54,7 @@ async function open(browser: Browser, host: string = SERVERS.demo, options: Brow
         userAgent: string;
         body: { name: string; url: string; domain: string; props: Record<string, string> };
       }>;
-      return sortRows(records.filter(row => row.userAgent === agent && row.body.name !== 'pageview').map(row => row.body));
+      return sortRows(records.filter(row => row.userAgent === agent && row.body.name !== 'pageview' && !row.body.name.startsWith('lp_')).map(row => row.body));
     }).toEqual(sortRows(expected.map(({ n, p }) => ({
       name: n, url: publicRunURL, domain: 'paracosm.agentos.sh', props: p,
     }))));
@@ -86,7 +87,7 @@ for (const entry of ['direct', 'from_landing'] as const) {
     try {
       if (entry === 'from_landing') {
         await page.goto('/?ref=private-marker');
-        await page.getByRole('link', { name: 'Launch Sim', exact: true }).first().click();
+        await page.getByRole('link', { name: /^Run a what-if in the demo/ }).click();
       } else {
         await page.goto('/sim?name=private-marker#private-marker', { referer: 'https://example.test/private-marker' });
       }

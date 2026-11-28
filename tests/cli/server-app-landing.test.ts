@@ -25,6 +25,7 @@ import { createMarsServer } from '../../src/server/server-app.js';
 import * as builtInScenarioModule from '../../src/engine/scenarios/index.js';
 import { DEMO_EXECUTION, minutesForTurns } from '../../src/cli/sim-config.js';
 import { buildLandingReplay, type SavedRun } from '../../src/dashboard/src/landing/replayDigest.js';
+import { minutesForTurns as dashboardMinutesForTurns } from '../../src/dashboard/src/components/quickstart/first-screen/effectiveLaunch.js';
 
 const root = resolve(import.meta.dirname, '..', '..');
 
@@ -453,7 +454,7 @@ test('the served landing page describes what differs between timelines', () => {
   assert.equal(html.match(/<meta name="description" content="([^"]*)">/)?.[1], description);
   assert.equal(html.match(/<meta property="og:description" content="([^"]*)">/)?.[1], description);
   assert.equal(html.match(/<meta name="twitter:description" content="([^"]*)">/)?.[1], description);
-  assert.equal(html.match(/<p class="hero-positioning"[^>]*>([^<]*)<\/p>/)?.[1].trim(), lead);
+  assert.equal(html.match(/<p class="hero-positioning[^"]*"[^>]*>([^<]*)<\/p>/)?.[1].trim(), lead);
   const closing = 'Compile a brief. Run it as timelines from the same seed and change one thing between them: who leads or an event at any turn. Watch the trajectories diverge.';
   assert.equal(html.match(/<section class="banner">[\s\S]*?<p class="rv">([^<]*)<\/p>/)?.[1], closing);
   // A run reads no intervention: WorldModel.intervene() keeps it on the artifact only, so the page never offers one as the thing to change.
@@ -590,6 +591,9 @@ test('the served landing page links the pinned run in the demo, says what a run 
     assert.ok(trust.includes(fact), fact);
   }
 
+  for (let turns = 1; turns <= 20; turns++) {
+    assert.equal(minutesForTurns(turns), dashboardMinutesForTurns(turns), `the server and the dashboard time ${turns} turns alike`);
+  }
   const hosted = await (await fetch(`${await hostedSite()}/`)).text();
   const minutes = minutesForTurns(DEMO_EXECUTION.maxTurns);
   const figure = `${Math.floor(minutes) || ''}${minutes % 1 ? '½' : ''}`;

@@ -36,7 +36,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import type { IncomingMessage } from 'node:http';
 import { isIP } from 'node:net';
 import { resolve } from 'node:path';
-import { checkedFirstScreenEvent, type FirstScreenEventName } from '../analytics/first-screen-events.js';
+import { checkedFirstScreenEvent, countedPageOf, type FirstScreenEventName } from '../analytics/first-screen-events.js';
 import { IpRateLimiter, type ClientIpHeader } from './rate-limiter.js';
 
 /** The site the hosted demo counts under on the shared Plausible instance, analytics.manic.agency. */
@@ -202,8 +202,9 @@ function countedPageView(value: unknown, isDocsPage?: (path: string) => boolean)
  * `{"n":"pageview","u":"<path>"}` (assets/consent/consent.js sends it); the
  * server builds its address from countedPage, on the counted domain, and
  * sends no referrer, so no query string, fragment, unlisted path or
- * referring page reaches the instance. A dashboard event carries exactly
- * `n`, `u` and `p`, and only the fixed names and values of its contract pass.
+ * referring page reaches the instance. A dashboard or landing page event
+ * carries exactly `n`, `u` and `p`, and only the fixed names and values of
+ * its contract pass, each counted on its own page (countedPageOf).
  */
 export function countedEvent(body: string, isDocsPage?: (path: string) => boolean): CountEvent | 'unlisted' | null {
   const parsed = parseEventBody(body);
@@ -218,8 +219,9 @@ export function countedEvent(body: string, isDocsPage?: (path: string) => boolea
   if (typeof u !== 'string' || /[\\\s]|%(?![0-9a-f]{2})/i.test(u)) return null;
   const url = parsedCountUrl(u);
   if (!url || url.origin !== `https://${PLAUSIBLE_DOMAIN}`) return null;
-  if (countedPage(url.pathname) !== '/sim') return 'unlisted';
-  return { name: event.name, url: `https://${PLAUSIBLE_DOMAIN}/sim`, domain: PLAUSIBLE_DOMAIN, props: event.fields };
+  const page = countedPageOf(event.name);
+  if (countedPage(url.pathname) !== page) return 'unlisted';
+  return { name: event.name, url: `https://${PLAUSIBLE_DOMAIN}${page}`, domain: PLAUSIBLE_DOMAIN, props: event.fields };
 }
 
 /**
