@@ -19,6 +19,10 @@
  * install of a user who commits a lockfile. The deploy workflow runs that on
  * Node 22 in an image with no make, compiler or Python, where a lockfile
  * install that needs a toolchain fails.
+ *
+ * Both installs run again when the registry lists a dependency's version but
+ * does not serve its tarball yet, as for a version published moments before
+ * (scripts/npm-install-retry.mjs); any other install failure fails the check.
  */
 import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -26,6 +30,8 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { npmWithRetry } from './npm-install-retry.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -149,14 +155,14 @@ async function main() {
     const project = join(work, 'project');
     mkdirSync(project);
     writeFileSync(join(project, 'package.json'), JSON.stringify({ name: 'paracosm-package-smoke', private: true }));
-    execFileSync('npm', ['install', tarball, '--no-audit', '--no-fund'], { cwd: project, stdio: 'inherit' });
+    await npmWithRetry(['install', tarball, '--no-audit', '--no-fund'], { cwd: project });
     if (options.reinstallFromLockfile) {
       // The lockfile the install wrote, installed again as `npm ci` installs it: npm builds a
       // package from its lockfile entry, which can differ from the fresh install (a package
       // whose entry records no `gypfile` gets `node-gyp rebuild`, which needs make and Python).
       if (!existsSync(join(project, 'package-lock.json'))) throw new Error('the install wrote no package-lock.json');
       rmSync(join(project, 'node_modules'), { recursive: true, force: true });
-      execFileSync('npm', ['ci', '--no-audit', '--no-fund'], { cwd: project, stdio: 'inherit' });
+      await npmWithRetry(['ci', '--no-audit', '--no-fund'], { cwd: project });
       console.log(`reinstalled from package-lock.json with npm ci on Node ${process.version}`);
     }
 
