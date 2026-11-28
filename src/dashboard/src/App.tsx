@@ -1074,9 +1074,11 @@ function AppContent() {
     return [...turns].sort((a, b) => a - b);
   }, [gameState, pairWatch]);
   const stoppedPair = pairWatch && (gameState.isAborted || sse.isAborted);
+  // Older saved streams can finish without sending a verdict or the live
+  // feed's replay marker. Their recorded completion still ends playback.
   const pairEndReady = pairWatch && !stoppedPair && sse.isComplete &&
     Boolean(ownVerdict?.winner || ownVerdict?.skipped ||
-      (replaySessionId && sse.replayDone) || sse.loadedRuns && !sse.runKey && sse.replayDone);
+      replaySessionId || sse.loadedRuns && !sse.runKey && sse.replayDone);
   const playhead = useRunPlayhead(pairIdentity, pairTurns, pairEndReady);
   const showStatusCost = activeTab !== 'sim' || !pairWatch || (launchedRun?.runKey === sse.runKey && launchedRun?.usedVisitorKey === true);
   const wipeServer = adminTokenSaved && serverAdminWrite === true ? handleWipeServer : undefined;
