@@ -269,7 +269,7 @@ const runVisit = { state: 'ready', entry: 'from_tab' };
 const pairChange = { to: '2' };
 const gaContext = {
   page_location: BASE + '/sim',
-  page_title: 'Watch AI leaders run the same scenario | Paracosm',
+  page_title: 'Simulate one scenario side by side under different leaders | Paracosm',
   page_referrer: '',
 };
 

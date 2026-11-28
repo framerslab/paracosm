@@ -11,10 +11,10 @@
 export const NBSP = '\u00a0';
 
 /** The page's title, as the browser's tab shows it. */
-export const PAGE_TITLE = 'Watch AI leaders run the same scenario | Paracosm';
+export const PAGE_TITLE = 'Simulate one scenario side by side under different leaders | Paracosm';
 
-/** The page's description, in the same words as its title. */
-export const PAGE_DESCRIPTION = 'Read each AI leader’s orders and full prompt, compare leaders side by side, then watch 2 to 300 of them run the same scenario turn by turn.';
+/** The page's description for search and sharing. */
+export const PAGE_DESCRIPTION = 'Simulate the same scenario 2 to 300 times from the same start and compare where the runs part, turn by turn. An AI event director writes each run’s unscripted crises, and only the leader differs: read both leaders’ personality scores and orders before a pair starts.';
 
 /** The short capital mark over the scenario's name. */
 export const SCENARIO_MARK = 'SCENARIO';
@@ -28,22 +28,20 @@ export function countOf(n: number, one: string, many: string): string {
 }
 
 /**
- * The three sentences under the scenario's name: what the AI leaders do,
- * what Start does and what ends the run, written for the run's size. A pair
- * ends in a verdict; 3 to 300 leaders end in a report that ranks them. While
- * no free run is left and Start is replaced, the middle sentence, which
- * names Start, is left out. The last two words stay on one line, so the
- * paragraph never ends on a single word.
+ * The sentences under the scenario's name describe the shared start, the
+ * event director and what differs between runs. A pair ends in a verdict.
+ * A cohort ends in a report that ranks its leaders. The sentence about
+ * Start appears when Start is available. The last two words stay together.
  */
 export function scenarioSentences(o: { n: number; turns: number; place?: string; atLimit: boolean }): string {
   const place = o.place?.trim() || FALLBACK_PLACE;
-  const leaders = o.n <= 2 ? 'Two AI leaders' : `${o.n}${NBSP}AI leaders`;
-  const first = `${leaders} each run ${place} for ${countOf(o.turns, 'turn', 'turns')}, each under its own orders.`;
+  const runs = o.n <= 2 ? 'Two runs' : `${o.n}${NBSP}runs`;
+  const comparison = `${runs} of ${place} start from the same state and play for ${countOf(o.turns, 'turn', 'turns')}, and an AI event director writes each run’s unscripted crises from what happens in it. Only the leader differs: its personality and its orders.`;
   const press = 'Press Start to watch them decide.';
   const end = o.n <= 2
     ? `At the end, a verdict says who won and${NBSP}why.`
     : `At the end, a report ranks them on morale, population and${NBSP}deaths.`;
-  return o.atLimit ? `${first} ${end}` : `${first} ${press} ${end}`;
+  return o.atLimit ? `${comparison} ${end}` : `${comparison} ${press} ${end}`;
 }
 
 /** Said beside the broken-link mark while the page asks for the scenario again. */
@@ -497,3 +495,44 @@ export const NOTE_FICTIONAL = 'Leaders are fictional characters.';
 
 /** Above Start's notice. */
 export const NOTE_AI = 'The leaders are AI agents. Everything they say is written by a language model and can be wrong.';
+
+/** The written leader's prompt key. */
+export const SEE_FULL_PROMPT = 'See the full prompt';
+
+/** Copy for the read-only commander input dialog. */
+export const FULL_PROMPT = {
+  title: (name: string) => `${name}'s full prompt`,
+  opening: 'Opening…',
+  close: 'Close',
+  lead: "Everything this leader is given, in three parts. Parts 1 and 2 are exactly what the model receives. Part 3 is a sample of a turn. The model's own hidden reasoning is not here, because Paracosm does not receive it.",
+  sections: 'Prompt parts',
+  system: '1. System prompt',
+  systemNote: "The standing instructions the model reads first: the leader's orders and a description of its personality written from its six trait scores. A line that starts with ## marks a heading in that text.",
+  systemNoteOther: "The standing instructions the model reads first: the leader's orders and a description of its personality. A line that starts with ## marks a heading in that text.",
+  openingMessage: '2. Opening message',
+  openingNote: 'Sent once, before turn 1. It says what the leader leads and repeats its personality as a decision style.',
+  sample: '3. A sample turn',
+  sampleNote: "The shape of what the leader receives each turn: the event, the department reports, the state, the options, and the leader's decision rule. The event and the reports are written during a run by other AI agents, so this sample marks where they go.",
+  hexaco: 'HEXACO is a six-trait personality model: openness, conscientiousness, extraversion, agreeableness, emotionality and honesty-humility, each scored 0 to 1.',
+  scoreLabel: (name: string, scores: string) => `${name}'s six scores: ${scores}`,
+  speaks: (name: string, names: string) => `For ${name}: ${names}.`,
+  middle: (name: string) => `For ${name}: every score is near the middle, so part 1 has no personality section.`,
+  scoreRule: "Each score far from the middle adds one line to part 1's personality section.",
+  twice: 'The leader hears about its personality twice, here and in the opening message. The two use different cut-offs, so a middling score can speak in one and stay quiet in the other.',
+  barNote: "Bar: the chance at which this leader's rule says to take the bold option. The leader's personality sets it. The number here is the bar at the start of a run.",
+  bar: (value: number) => `${value} in 100`,
+  freeModel: 'Model on a free run:',
+  ownModel: 'With your own API key, the model is the one chosen in Settings.',
+  serverModel: 'On this server, the model is the one chosen in Settings.',
+  notInRun: 'Paracosm writes new leaders for a run of this size, so this leader is not in the run Start launches. These are the words it gets in a run that includes it.',
+  filled: 'This leader had no written orders, so Paracosm wrote these from its title and temperament.',
+  loading: 'Loading the prompt',
+  loaded: 'Prompt loaded',
+  failed: 'The prompt did not load.',
+  changed: 'The scenario has changed since this page loaded. Reload to read its leaders.',
+  offline: 'You are offline. Try again when you are back online.',
+  limited: 'Too many requests from this connection. Try again in a minute.',
+  retry: 'Try again',
+  trying: 'Trying…',
+  reload: 'Reload',
+} as const;

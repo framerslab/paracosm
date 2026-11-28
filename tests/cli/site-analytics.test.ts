@@ -201,6 +201,8 @@ const namedEvents = [
   ['qs_no_run_left_view', {}],
   ['qs_no_run_left_action', { action: 'replay_last' }],
   ['qs_pair_switch', { to: '2' }],
+  ['qs_prompt_open', { side: 'left' }],
+  ['qs_prompt_open', { side: 'right' }],
   ['tab_change', { to: 'settings' }],
 ] as const;
 const pairEvent = { n: 'qs_pair_switch', u: '/sim', p: { to: '2' } };
@@ -235,6 +237,8 @@ test('POST /api/event rejects names, envelopes, paths and fields outside the nam
   received.length = 0;
   const invalid = [
     { ...pairEvent, n: 'unknown' },
+    { ...pairEvent, n: 'qs_prompt_open', p: { side: 'marker' } },
+    { ...pairEvent, n: 'qs_prompt_open', p: { side: 'left', prompt: 'marker' } },
     { ...pairEvent, n: 'constructor' },
     { ...pairEvent, r: 'referrer-marker' },
     { n: pairEvent.n, u: pairEvent.u },
@@ -263,6 +267,9 @@ test('named events share the count route privacy, page and request limits', asyn
   const body = JSON.stringify(pairEvent);
   for (const headers of [{ DNT: '1' }, { 'Sec-GPC': '1' }, { 'Sec-Fetch-Site': 'cross-site' }]) {
     assert.equal((await post(site, body, headers as Record<string, string>)).status, 204);
+  }
+  for (const headers of [{ DNT: '1' }, { 'Sec-GPC': '1' }]) {
+    assert.equal((await post(site, JSON.stringify({ ...pairEvent, n: 'qs_prompt_open', p: { side: 'left' } }), headers as Record<string, string>)).status, 204);
   }
   for (const u of ['/', '/another-page']) {
     assert.equal((await post(site, JSON.stringify({ ...pairEvent, u }))).status, 204);

@@ -23,7 +23,7 @@ function browser(choices: Purpose[] | null) {
 const view = { state: 'ready', entry: 'direct' };
 const context = {
   page_location: 'https://example.test/sim',
-  page_title: 'Watch AI leaders run the same scenario | Paracosm',
+  page_title: 'Simulate one scenario side by side under different leaders | Paracosm',
   page_referrer: '',
 };
 
@@ -123,4 +123,32 @@ test('Watch disclosures measure only with the fixed dashboard context', () => {
     assert.deepEqual(page.recordings, []);
     assert.deepEqual(page.measures, choices?.includes('measure') ? [['event', 'watch_fold', { fold: 'crisis', ...context }]] : []);
   }
+});
+
+test('full prompt opens reach only the allowed destinations with the fixed side', () => {
+  const name = 'qs_prompt_open';
+  const choices: Purpose[] = [];
+  const page = browser(choices);
+  sendEvent(name, { side: 'right' }, page.window);
+  assert.deepEqual([page.posts, page.measures, page.recordings], [[], [], []]);
+
+  choices.push('count');
+  sendEvent(name, { side: 'right' }, page.window);
+  assert.equal(page.posts.length, 1);
+  assert.equal((page.posts[0][1] as RequestInit).body, JSON.stringify({ n: name, u: '/sim', p: { side: 'right' } }));
+  assert.deepEqual([page.measures, page.recordings], [[], []]);
+
+  choices.splice(0, 1, 'measure');
+  sendEvent(name, { side: 'left' }, page.window);
+  assert.deepEqual(page.measures, [['event', name, { side: 'left', ...context }]]);
+  assert.equal(page.posts.length, 1);
+  assert.deepEqual(page.recordings, []);
+
+  choices.splice(0, 1, 'record');
+  sendEvent(name, { side: 'left' }, page.window);
+  assert.deepEqual(page.recordings, [['event', name]]);
+  choices.push('count', 'measure');
+  sendEvent(name, { side: 'right', name: 'marker' }, page.window);
+  sendEvent(name, { side: 'marker' }, page.window);
+  assert.deepEqual([page.posts.length, page.measures.length, page.recordings.length], [1, 1, 1]);
 });

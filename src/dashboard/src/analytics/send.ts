@@ -51,7 +51,7 @@ export function deliverEvent(event: Delivery, w?: Window): void {
       const params = event.dashboard || count ? {
         ...fields,
         page_location: page.location.origin + '/sim',
-        page_title: 'Watch AI leaders run the same scenario | Paracosm',
+        page_title: 'Simulate one scenario side by side under different leaders | Paracosm',
         page_referrer: '',
       } : forgePageContext(page, fields);
       page.gtag?.('event', name, params);

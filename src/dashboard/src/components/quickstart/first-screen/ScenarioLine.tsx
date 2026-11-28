@@ -1,7 +1,7 @@
 /**
  * The scenario line, the first block of the Run tab: the mark SCENARIO over
- * the scenario's name, the page's one h1; three sentences that say what the
- * AI leaders do, what Start does and what ends the run; and one line of the
+ * the scenario's name, the page's one h1; the sentences that say what the
+ * runs share and what differs, what Start does and what ends the run; and one line of the
  * run's own figures as the run will use them.
  *
  * Until GET /scenario has answered, and the server has said whose keys a

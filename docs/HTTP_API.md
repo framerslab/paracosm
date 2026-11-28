@@ -58,6 +58,7 @@ A local server and `platform_api` mode answer every caller that reaches the rout
 | POST   | `/compile` | Compile a scenario JSON into the shared catalog under an id that names nothing yet |
 | GET    | `/rate-limit` | The day's run allowance for the caller, and on the hosted demo the turns, provider and models of a run on the host's keys |
 | GET    | `/admin-config` | What the dashboard may show: server mode, run caps and bounds, batch concurrency, key presence, the key idle time |
+| GET    | `/leader-prompt` | The exact opening inputs and a sample turn for a written leader in the selected scenario |
 | GET    | `/scenarios` | The scenarios this visitor can run, with their figures, leaders and labels |
 | POST   | `/forget-keys` | Drop the run and chat agents that hold this visitor's keys |
 | POST   | `/api/event` | Hosted demo only: one page view from the consent bar, or one named dashboard event, forwarded as the public page it names to the site's Plausible count |
@@ -395,7 +396,7 @@ A named event:
 { "n": "qs_pair_switch", "u": "/sim", "p": { "to": "2" } }
 ```
 
-The body holds exactly `n`, `u` and `p`. `n` is one of the nine names below. `u` is the dashboard's path, `/sim` or a path under it. `p` holds exactly that event's fields, each a string from the field's list, and `{}` for an event with no fields. The server copies those values and nothing else. Another name, a missing, extra or inherited field, a value off its list, free text, a number, an array or `null` in place of a value, a key other than `n`, `u` and `p`, or a malformed path answers `400`, and nothing is forwarded. A path outside the dashboard answers `204`.
+The body holds exactly `n`, `u` and `p`. `n` is one of the ten names below. `u` is the dashboard's path, `/sim` or a path under it. `p` holds exactly that event's fields, each a string from the field's list, and `{}` for an event with no fields. The server copies those values and nothing else. Another name, a missing, extra or inherited field, a value off its list, free text, a number, an array or `null` in place of a value, a key other than `n`, `u` and `p`, or a malformed path answers `400`, and nothing is forwarded. A path outside the dashboard answers `204`.
 
 | Event | Sent when | Fields and their values | Clarity |
 |-------|-----------|-------------------------|---------|
@@ -407,7 +408,10 @@ The body holds exactly `n`, `u` and `p`. `n` is one of the nine names below. `u`
 | `qs_no_run_left_view` | The Start band shows the daily limit | none | Yes |
 | `qs_no_run_left_action` | At that limit, a visitor picks the offered replay or Settings | `action`: `replay_last`, `add_key` | Yes |
 | `qs_pair_switch` | The narrow layout shows the other leader of a pair | `to`: `1`, `2` | No |
+| `qs_prompt_open` | A written leader’s full prompt opens | `side`: `left`, `right` | Yes |
 | `tab_change` | A visitor picks a different section in the header's section row or its More menu; links inside a page that open another section are not counted | `to`: `quickstart`, `sim`, `reports`, `studio`, `viz`, `chat`, `library`, `settings`, `about` | No |
+
+The prompt event records one open. `left` is the first written card and `right` the second, including on the narrow switch. Closing, retrying and moving between parts send no additional event.
 
 `size` gives the number of leaders as a range: 2, 3 to 8, 9 to 24, 25 to 100, or 101 to 300.
 
@@ -507,6 +511,46 @@ Reports what the dashboard may show: whether the server takes admin writes (`adm
 - A local or platform answer leaves out `demoCaps.maxActors`, `run` and `batch`.
 
 The answer carries `Cache-Control: no-store` and `Vary: Cookie`.
+
+## `GET /leader-prompt`
+
+Request `GET /leader-prompt?scenario=mars-genesis&place=1` to read the first written leader in the visitor's selected scenario. Pass one scenario id and a one-based place in the first preset's written leaders. The server selects the scenario from the visitor's current selection and checks that it matches the query. The route reads no request body and needs no provider credentials.
+
+The optional `X-Paracosm-Prompt-Mode: own` header selects the visitor-key preview on the hosted demo. Omit it to preview the host-paid run's order limit of 400 UTF-16 code units. Other values select the host-paid preview. A self-hosted server uses the full configured orders in either case. A launch determines its payer independently.
+
+Example with shortened prompt text and one of the six scores:
+
+```json
+{
+  "scenarioId": "mars-genesis",
+  "place": 1,
+  "name": "Aria Chen",
+  "filled": false,
+  "parts": {
+    "system": "…",
+    "opening": "…",
+    "sampleTurn": "[this turn's event] … [the department reports, written during the run]"
+  },
+  "scores": [{ "trait": "openness", "value": 0.95, "line": "…" }],
+  "speaking": ["emotionality", "extraversion", "openness"],
+  "bar": 36,
+  "model": null
+}
+```
+
+`filled` reports when the run would supply deterministic orders. `parts.system` and `parts.opening` are the exact initial inputs to the commander. `parts.sampleTurn` uses example options and placeholders for the event and reports. `scores[].line` is the corresponding personality directive or `null`. `speaking` lists the traits with directives in prompt order. `bar` gives the starting decision threshold as an integer out of 100. For a leader on another trait model, `scores` and `speaking` are empty and `bar` is `null`. The hosted demo returns the free-run commander's `{ provider, model }` in both preview modes. A self-hosted server returns `null`.
+
+| Status | Meaning |
+|--------|---------|
+| `200` | The written leader's prompt. |
+| `400` | Missing or invalid scenario or place, a place outside the written roster, or a scenario that cannot be resolved or run. |
+| `404` | The selected scenario has no written leaders. |
+| `409` | `scenario_changed`. Reload the selected scenario before requesting again. |
+| `429` | `prompt_read_limit`. The address has reached the separate in-memory limit of 60 reads per minute. The response carries `Retry-After: 60`. |
+| `500` | `prompt_unavailable`. The server could not construct the prompt. |
+| `503` | The selected scenario is still loading. The response carries `Retry-After: 5`. |
+
+All responses carry `Content-Type: application/json`, `Cache-Control: no-store` and `Vary: Cookie, X-Paracosm-Prompt-Mode`. Reading a prompt makes no model call and leaves the daily run allowance unchanged.
 
 ## `GET /scenarios`
 

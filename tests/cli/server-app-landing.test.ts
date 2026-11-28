@@ -370,7 +370,7 @@ test('the served privacy section explains who receives the first-screen events',
   const privacy = section('privacy');
   const paragraphs = [...privacy.matchAll(/<p\b[^>]*>(.*?)<\/p>/gs)].map(match => wordsOf(match[1]));
   const launches = paragraphs.find(text => text.includes('Viewing the Run screen')) ?? '';
-  for (const action of ['pressing Start', 'a run opening or failing to start', 'seeing the daily limit', 'choosing a replay or Settings']) {
+  for (const action of ['pressing Start', 'opening a leader’s full prompt', 'a run opening or failing to start', 'seeing the daily limit', 'choosing a replay or Settings']) {
     assert.ok(launches.includes(action), action);
   }
   assert.match(launches, /Plausible counts.*Google Analytics 4 measures.*with your permission.*Microsoft Clarity marks.*by name.*recording/s);
@@ -378,6 +378,7 @@ test('the served privacy section explains who receives the first-screen events',
   const navigation = paragraphs.find(text => text.includes('Opening How it works')) ?? '';
   assert.match(navigation, /switching between the two leaders.*choosing a section.*Plausible.*Google Analytics 4.*permission/s);
   assert.doesNotMatch(navigation, /Clarity/);
+  assert.match(privacy, /counts full prompt reads separately by IP address in memory for one minute/);
   assert.match(privacy, /only fixed choices and ranges for the number of leaders/);
   assert.match(privacy, /count runs before you answer/);
   assert.match(privacy, /Reject all or its switch stops it/);
@@ -427,12 +428,23 @@ test('/docs and /docs/ answer a permanent redirect to the API reference', async 
   }
 });
 
-test('the landing page title fits in 60 characters and its meta description in 120 to 160', () => {
+test('the landing page title fits in 60 characters', () => {
   const title = html.match(/<title>([^<]*)<\/title>/)?.[1] ?? '';
-  const description = html.match(/<meta name="description" content="([^"]*)">/)?.[1] ?? '';
-
   assert.ok(title.length > 0 && title.length <= 60, `the title has ${title.length} characters: ${title}`);
-  assert.ok(description.length >= 120 && description.length <= 160, `the description has ${description.length} characters: ${description}`);
+});
+
+test('the served landing page describes what differs between timelines', () => {
+  const description = 'Open-source TypeScript agent swarm simulator. Run one what-if as timelines from the same seed and change one thing between them: a leader’s HEXACO personality or an event at a past turn. An LLM event director writes each timeline’s unscripted crises from what happens in it.';
+  const lead = 'Type a scenario in plain English. Paracosm runs it as timelines side by side, all from the same start. An AI event director writes each timeline’s unscripted crises from what has happened in it so far. Change one thing between them, such as a leader’s personality or an event at a past turn, and see where each one ends up.';
+  assert.equal(html.match(/<meta name="description" content="([^"]*)">/)?.[1], description);
+  assert.equal(html.match(/<meta property="og:description" content="([^"]*)">/)?.[1], description);
+  assert.equal(html.match(/<meta name="twitter:description" content="([^"]*)">/)?.[1], description);
+  assert.equal(html.match(/<p class="hero-positioning"[^>]*>([^<]*)<\/p>/)?.[1].trim(), lead);
+  const closing = 'Compile a brief. Run it as timelines from the same seed and change one thing between them: who leads or an event at any turn. Watch the trajectories diverge.';
+  assert.equal(html.match(/<section class="banner">[\s\S]*?<p class="rv">([^<]*)<\/p>/)?.[1], closing);
+  // A run reads no intervention: WorldModel.intervene() keeps it on the artifact only, so the page never offers one as the thing to change.
+  assert.doesNotMatch(html, /change one thing between them:[^.<]*intervention/);
+  assert.doesNotMatch(html, /LLM leaders with HEXACO personalities play it out|Generate three actors/);
 });
 
 test("the dashboard page's one static h1 sits inside #root, which React clears when the dashboard mounts", async (t) => {

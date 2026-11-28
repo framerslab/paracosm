@@ -20,6 +20,7 @@ const EVENTS = Object.freeze({
   qs_no_run_left_view: rule(true, {}),
   qs_no_run_left_action: rule(true, { action: ['replay_last', 'add_key'] }),
   qs_pair_switch: rule(false, { to: ['1', '2'] }),
+  qs_prompt_open: rule(true, { side: ['left', 'right'] }),
   watch_fold: rule(false, { fold: ['crisis', 'reasoning'] }, false),
   tab_change: rule(false, { to: ['quickstart', 'sim', 'reports', 'studio', 'viz', 'chat', 'library', 'settings', 'about'] }),
 });
