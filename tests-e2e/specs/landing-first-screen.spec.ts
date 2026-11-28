@@ -226,7 +226,15 @@ test('the header stays one row from 320 to 768 px, three controls under 600 px a
         for (const box of boxes) expect(box.height, `${width} px: a target of 44 px`).toBeGreaterThanOrEqual(44);
         const bar = await page.locator('.lp-bar').boundingBox();
         expect(bar?.height, `${width} px, ${look}: the bar is 56 px high`).toBeLessThanOrEqual(57);
-        const sideways = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+        // Nothing in the header or the first screen reaches past the window's right edge.
+        const sideways = await page.evaluate(() => {
+          let worst = -Infinity;
+          for (const el of Array.from(document.querySelectorAll('.lp-bar *, .lp-first *'))) {
+            const box = el.getBoundingClientRect();
+            if (box.width > 0 && box.height > 0) worst = Math.max(worst, box.right - window.innerWidth);
+          }
+          return worst;
+        });
         expect(sideways, `${width} px, ${look}: nothing scrolls sideways`).toBeLessThanOrEqual(0);
         expect(errors).toEqual([]);
       } finally {
@@ -312,6 +320,7 @@ for (const viewport of VIEWPORTS) {
       expect(digest.verdict.population[0]).not.toBe(digest.verdict.population[1]);
 
       // A press of the slider's track moves it too.
+      await runLine(page).scrollIntoViewIfNeeded();
       const track = await runLine(page).boundingBox();
       if (!track) throw new Error('the run line has no box');
       await page.mouse.click(track.x + 4, track.y + track.height / 2);

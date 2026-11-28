@@ -2035,10 +2035,11 @@ html.light { color-scheme: light; }
   box-sizing: border-box;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   justify-content: space-between;
-  gap: 8px;
+  gap: 4px;
   min-height: 60px;
-  padding: 0 4px 0 14px;
+  padding: 0 4px 0 12px;
   border: 1px solid var(--lp-edge);
   border-radius: 4px;
 }
