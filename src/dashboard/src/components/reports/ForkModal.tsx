@@ -10,14 +10,14 @@
  *
  * @module reports/ForkModal
  */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useId } from 'react';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { useScenarioContext } from '../../App';
 import { useScenarioLabels } from '../../hooks/useScenarioLabels';
 import {
   resolveLeaderPresets,
   estimateForkCost,
-  parseCustomEvents,
+  inspectCustomEventLines,
 } from './ForkModal.helpers';
 import type { ActorInput } from '../../../../engine/types.js';
 import type { RunArtifact } from '../../../../engine/schema/index.js';
@@ -66,6 +66,7 @@ export function ForkModal(props: ForkModalProps) {
   const [actorIndex, setLeaderIndex] = useState(0);
   const [seedText, setSeedText] = useState('');
   const [customEventsText, setCustomEventsText] = useState('');
+  const eventFeedbackId = useId();
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -76,18 +77,22 @@ export function ForkModal(props: ForkModalProps) {
   }, [onClose]);
 
   const costEstimate = estimateForkCost(atTurn, maxTurns, costPreset, provider);
+  const firstPlayableTurn = atTurn + 1;
   const turnsRemaining = Math.max(0, maxTurns - atTurn);
   const parentSeed = parentArtifact.metadata.seed;
+  const eventLines = inspectCustomEventLines(customEventsText, atTurn, maxTurns);
+  const eventProblems = eventLines.filter(line => line.status !== 'used');
+  const hasEventProblems = eventProblems.length > 0;
 
   const handleConfirm = () => {
     const leader = presets[actorIndex];
-    if (!leader) return;
+    if (!leader || hasEventProblems) return;
     const parsedSeed = seedText.trim() ? parseInt(seedText, 10) : undefined;
     const seedOverride = parsedSeed !== undefined && Number.isFinite(parsedSeed)
       ? parsedSeed
       : undefined;
-    const customEvents = customEventsText.trim()
-      ? parseCustomEvents(customEventsText)
+    const customEvents = eventLines.length
+      ? eventLines.flatMap(line => line.status === 'used' ? [line.event] : [])
       : undefined;
     onConfirm({ parentArtifact, atTurn, leader, seedOverride, customEvents });
   };
@@ -163,14 +168,34 @@ export function ForkModal(props: ForkModalProps) {
         <details className={styles.advanced}>
           <summary>Advanced: custom events</summary>
           <textarea
+            aria-label="Custom events"
+            aria-invalid={hasEventProblems || undefined}
+            aria-describedby={hasEventProblems ? eventFeedbackId : undefined}
             rows={4}
             placeholder={
-              'One event per line, format: "turn: title: description"\n' +
-              'Example: 5: Supply drop: Relief arrives with 3 months of food.'
+              `One event per line, format: "${labels.Time}: title: description"\n` +
+              `Example: ${firstPlayableTurn}: Supply drop: Relief arrives with 3 months of food.`
             }
             value={customEventsText}
             onChange={e => setCustomEventsText(e.target.value)}
           />
+          <div id={eventFeedbackId} role="status" className={`${styles.hint} ${styles.eventFeedback}`}>
+            {hasEventProblems && (
+              <>
+                <p>Fork is disabled until you fix or remove these lines.</p>
+                {eventProblems.map(line => (
+                  <p key={line.lineNumber}>
+                    {line.status === 'malformed'
+                      ? `Line ${line.lineNumber} is not in the form ${labels.Time}: title: description.`
+                      : `Line ${line.lineNumber} is for ${labels.Time} ${line.turn}. ` +
+                        (line.status === 'before-fork'
+                          ? `This fork starts at ${labels.Time} ${firstPlayableTurn}.`
+                          : `This fork ends at ${labels.Time} ${maxTurns}.`)}
+                  </p>
+                ))}
+              </>
+            )}
+          </div>
         </details>
 
         <div className={styles.costEstimate} role="status">
@@ -188,7 +213,8 @@ export function ForkModal(props: ForkModalProps) {
           <button
             type="button"
             onClick={handleConfirm}
-            disabled={presets.length === 0}
+            disabled={presets.length === 0 || hasEventProblems}
+            aria-describedby={hasEventProblems ? eventFeedbackId : undefined}
             className={styles.confirmButton}
           >
             Fork
