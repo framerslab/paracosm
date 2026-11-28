@@ -325,3 +325,8 @@ export function useServerFacts(): ServerFacts {
   if (!facts) throw new Error('useServerFacts must be used within ServerFactsProvider');
   return facts;
 }
+
+/** The server's answers inside ServerFactsProvider, or null where a view renders without it. */
+export function useServerFactsIfProvided(): ServerFacts | null {
+  return useContext(ServerFactsContext);
+}

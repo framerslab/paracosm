@@ -7,7 +7,8 @@ import { useBranchesContext } from '../branches/BranchesContext';
 import { useDashboardNavigation, useRunStart, useScenarioContext, useScenarioReady } from '../../App';
 import { useScenarioLabels } from '../../hooks/useScenarioLabels';
 import { ForkModal, type ForkConfirmPayload } from './ForkModal';
-import { canForkAtTurn, forkFinalTurn, forkParentForPost } from './ForkModal.helpers';
+import { canForkAtTurn, forkFinalTurn, forkParentForPost, forkRunLimits } from './ForkModal.helpers';
+import { useServerFactsIfProvided } from '../quickstart/first-screen/useServerFacts';
 import forkStyles from './ForkModal.module.scss';
 import { Badge } from '../shared/Badge';
 import { CitationPills } from '../shared/CitationPills';
@@ -236,15 +237,19 @@ export function ReportView({ state, verdict, shownRun, reportSections }: ReportV
   // is not forked from this page: its fork would never show here.
   const parentScenario = parentArtifact?.metadata?.scenario;
   const parentInOtherScenario = typeof parentScenario?.id === 'string' && parentScenario.id !== pageScenario.id;
+  // The fork posts no provider key, so on the hosted demo it runs on the
+  // host's keys under the demo caps (forkRunLimits).
+  const forkServer = useServerFactsIfProvided()?.adminConfig;
+  const forkLimits = parentArtifact ? forkRunLimits(parentArtifact, forkServer) : undefined;
   const canFork = useCallback(
     (turnNum: number): boolean => {
       if (!parentArtifact) return false;
       if (state.isRunning) return false;
       if (!pageScenarioReady || parentInOtherScenario) return false;
       // No fork at the final turn: nothing is left to run after it.
-      return canForkAtTurn(parentArtifact, turnNum);
+      return canForkAtTurn(parentArtifact, turnNum, forkServer);
     },
-    [parentArtifact, state.isRunning, pageScenarioReady, parentInOtherScenario],
+    [parentArtifact, state.isRunning, pageScenarioReady, parentInOtherScenario, forkServer],
   );
   const handleForkConfirm = useCallback(
     async (payload: ForkConfirmPayload) => {
@@ -1012,11 +1017,12 @@ export function ReportView({ state, verdict, shownRun, reportSections }: ReportV
       </details>
       </div>
       <ReportSideNav items={sideNavItems} scrollRoot={scrollRef.current} />
-      {forkModalAtTurn !== null && parentArtifact && (
+      {forkModalAtTurn !== null && parentArtifact && forkLimits && (
         <ForkModal
           parentArtifact={parentArtifact}
           atTurn={forkModalAtTurn}
-          maxTurns={forkFinalTurn(parentArtifact)}
+          maxTurns={forkLimits.finalTurn}
+          onePerTurn={forkLimits.onePerTurn}
           costPreset="economy"
           provider="openai"
           onConfirm={handleForkConfirm}

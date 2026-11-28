@@ -38,8 +38,10 @@ export interface ForkModalProps {
   parentArtifact: RunArtifact;
   /** Turn index selected by the user (from the ReportView button). */
   atTurn: number;
-  /** Total turns the fork should run to (typically parent's maxTurns). */
+  /** The last turn the fork plays (forkRunLimits: the parent's final turn, or the hosted demo's cap). */
   maxTurns: number;
+  /** Whether each turn keeps only its first custom event (a fork on the hosted demo's keys). */
+  onePerTurn?: boolean;
   /** Current session cost preset (from Settings). */
   costPreset: 'quality' | 'economy';
   /** Current session provider (from Settings). */
@@ -54,7 +56,7 @@ export interface ForkModalProps {
 
 export function ForkModal(props: ForkModalProps) {
   const {
-    parentArtifact, atTurn, maxTurns, costPreset, provider,
+    parentArtifact, atTurn, maxTurns, onePerTurn = false, costPreset, provider,
     sessionCustomLeaders = [], onConfirm, onClose,
   } = props;
 
@@ -80,7 +82,7 @@ export function ForkModal(props: ForkModalProps) {
   const firstPlayableTurn = atTurn + 1;
   const turnsRemaining = Math.max(0, maxTurns - atTurn);
   const parentSeed = parentArtifact.metadata.seed;
-  const eventLines = inspectCustomEventLines(customEventsText, atTurn, maxTurns);
+  const eventLines = inspectCustomEventLines(customEventsText, atTurn, maxTurns, { onePerTurn });
   const eventProblems = eventLines.filter(line => line.status !== 'used');
   const hasEventProblems = eventProblems.length > 0;
 
@@ -187,10 +189,13 @@ export function ForkModal(props: ForkModalProps) {
                   <p key={line.lineNumber}>
                     {line.status === 'malformed'
                       ? `Line ${line.lineNumber} is not in the form ${labels.Time}: title: description.`
-                      : `Line ${line.lineNumber} is for ${labels.Time} ${line.turn}. ` +
-                        (line.status === 'before-fork'
-                          ? `This fork starts at ${labels.Time} ${firstPlayableTurn}.`
-                          : `This fork ends at ${labels.Time} ${maxTurns}.`)}
+                      : line.status === 'same-turn'
+                        ? `Line ${line.lineNumber} is a second event for ${labels.Time} ${line.turn}. ` +
+                          `This fork keeps only the first, line ${line.firstLineNumber}.`
+                        : `Line ${line.lineNumber} is for ${labels.Time} ${line.turn}. ` +
+                          (line.status === 'before-fork'
+                            ? `This fork starts at ${labels.Time} ${firstPlayableTurn}.`
+                            : `This fork ends at ${labels.Time} ${maxTurns}.`)}
                   </p>
                 ))}
               </>
