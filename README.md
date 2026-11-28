@@ -29,7 +29,7 @@
 </p>
 
 <p align="center">
-  <em>Type a what-if. Compile a typed world. Run multiple LLM commanders against it side by side. Fork any past turn. Watch the trajectories diverge.</em>
+  <em>Type a what-if. Compile a typed world. Run it as timelines side by side and change one thing between them: who leads or an event at any turn. Watch the trajectories diverge.</em>
 </p>
 
 <p align="center">
@@ -40,7 +40,7 @@
 
 ---
 
-Paracosm compiles a JSON scenario draft (or a prompt, or an extracted document) into a runnable multi-agent world, plays it through a deterministic seeded kernel, and lets actors with HEXACO personality profiles decide turn by turn how the world unfolds. The kernel reproduces byte-for-byte. The LLM Event Director reads each actor's HEXACO profile and accumulated state, so events diverge from turn 1. Snapshot any turn, fork with a different actor, seed, or custom event, and the branch streams alongside the trunk: the contrast is visible in the artifact, not promised in copy.
+Paracosm compiles a JSON scenario draft (or a prompt, or an extracted document) into a runnable multi-agent world and runs it as timelines from the same seed, roster and dice. The kernel reproduces byte-for-byte. The LLM Event Director writes each timeline’s unscripted crises from what happens in it. Snapshot any turn, fork with a different actor, seed, or custom event, and the branch streams alongside the trunk: the contrast is visible in the artifact, not promised in copy.
 
 <p align="center">
   <img src="assets/diagrams/paracosm-flow.svg" alt="Paracosm system flow: world source through Scenario Compiler, ScenarioPackage, Deterministic Kernel, Runtime Orchestrator turn loop (Director → Departments → Commander → Reactions, with Tool Forge + LLM Judge + HEXACO Drift + AgentMemory side modules), Agent Swarm of personality-typed cells, and a Zod-validated RunArtifact that can be replayed byte-for-byte or forked at any past turn into divergent branches." width="100%" />
@@ -92,11 +92,13 @@ With `captureSnapshots: true` the turn loop saves, beside each turn's end-of-tur
 
 ---
 
-## Personality is the variable
+## Change one thing: the leader’s personality
 
 > "We don't want to conquer the cosmos, we only want to extend the boundaries of Earth to the frontiers of the cosmos. We don't want other worlds; we want mirrors."
 >
 > Stanislaw Lem, *Solaris*, 1961
+
+By default a comparison in paracosm holds the scenario, the seed and the dice fixed and changes one thing. The commonest is the actor’s personality. A fork can also change the seed.
 
 Two simulation runs against an identical compiled scenario, starting from the same kernel state, produce divergent trajectories when the only thing that changes is the actor's personality. The kernel is reproducible. The divergence comes from the LLM stages reading a HEXACO profile and deciding accordingly. Both runs roll the same dice for the same person, so the people who die on one side and not the other are the ones whose world that run changed: a habitat that shields more of the dose, supplies held above what the colony landed with, morale that holds, a department that keeps them off the airlock. On Mars Genesis, which keeps one death die for each person and cause for a life, a person both sides lose dies no earlier on the side that gave them better chances in every year.
 
