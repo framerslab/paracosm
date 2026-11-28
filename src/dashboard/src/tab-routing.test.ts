@@ -85,3 +85,11 @@ test('Watch turn addresses survive tab changes and preserve the replay and other
     assert.equal(watchTurnFromHref(href.replace('#', '&watchTurn=' + invalid + '#')), null, invalid);
   }
 });
+
+test('the Settings recovery address preserves a held turn and its existing focus suffix', () => {
+  const watch = 'http://localhost:3456/sim?replay=abc&tab=sim&watchTurn=3';
+  const settings = createSettingsKeyHref(watch, 'anthropic');
+  assert.equal(settings, 'http://localhost:3456/sim?replay=abc&watchTurn=3&tab=settings&focus=api-key-anthropic');
+  assert.equal(watchTurnFromHref(settings), 3);
+  assert.equal(settingsKeyFocusField(settings), 'anthropic');
+});

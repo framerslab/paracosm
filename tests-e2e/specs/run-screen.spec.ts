@@ -250,6 +250,8 @@ test('one playhead follows the pair from Watch into Viz', async ({ browser }, in
     await turn(3);
     await expect(mark(4)).toHaveAttribute('data-pending', 'true');
     await expect(mark(3)).toHaveAttribute('data-selected', 'true');
+    await expect(mark(3)).toHaveAttribute('title', 'Turn 3, 2051: Dust Season');
+    await expect(mark(3)).toHaveAttribute('data-ai-generated', 'true');
     await expect(fields(watch, 3)).toHaveCount(2);
     await expect(watch.getByRole('region', { name: 'Leader statistics' }).getByText('430', { exact: true })).toBeVisible();
 
@@ -263,6 +265,13 @@ test('one playhead follows the pair from Watch into Viz', async ({ browser }, in
     await turn(3);
     await expect(key('Turn 4 is in')).toBeEnabled();
     expect(await frame()).toBe(pausedFrame);
+    await expect.poll(() => line.evaluate(slider => {
+      const track = slider.querySelector(':scope > div[data-arrived]')!;
+      const fill = getComputedStyle(track, '::after');
+      const arrived = slider.querySelector('[data-run-mark="4"]')!.getBoundingClientRect();
+      const fillEnd = track.getBoundingClientRect().left + Number.parseFloat(fill.left) + Number.parseFloat(fill.width);
+      return Math.abs(fillEnd - (arrived.left + arrived.width / 2));
+    })).toBeLessThanOrEqual(1);
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await capture(page, 'after', 'held-1440-dark');
     await expect(watch.getByText('Turn 3: Ration the water for the greenhouse.', { exact: true }).first()).toBeVisible();
@@ -392,6 +401,7 @@ test('one playhead follows the pair from Watch into Viz', async ({ browser }, in
     }
     await loadPairRecording(page, 3, true);
     await expect(line.locator('[data-run-mark="3"]')).toHaveAttribute('data-interrupted', 'true');
+    await expect(line.locator('[data-run-mark]')).toHaveCount(3);
     await expect(line).toHaveAttribute('aria-valuenow', '3');
     await line.press('ArrowLeft');
     await expect(line).toHaveAttribute('aria-valuenow', '2');
