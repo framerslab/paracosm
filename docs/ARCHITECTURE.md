@@ -1,6 +1,6 @@
 # Paracosm Architecture
 
-Paracosm is an **agent swarm simulation framework for structured world modeling with LLMs**. It compiles prompts, documents, URLs, or scenario JSON drafts into a typed `ScenarioPackage`, then runs multi-agent simulations: one or more AI leaders with HEXACO personality profiles direct a swarm of specialist departments and ~100 personality-typed agents through a deterministic kernel, producing measurably different outcomes from identical starting conditions. Fits the structured / LLM-based / top-down-swarm branch of the 2026 world-model taxonomy; see [`docs/positioning/world-model-mapping.md`](positioning/world-model-mapping.md) for the placement against adjacent categories.
+Paracosm is an **agent swarm simulation framework for structured world modeling with LLMs**. It compiles prompts, documents, URLs, or scenario JSON drafts into a typed `ScenarioPackage`, then runs it as one or more timelines from identical starting conditions. In each timeline an LLM event director writes the unscripted crises from what has happened so far, and a leader with a HEXACO (or other trait) profile directs a swarm of specialist departments and ~100 personality-typed agents through a deterministic kernel. Change one thing between timelines (the leader or an event at a past turn) and the outcomes differ measurably. Fits the structured / LLM-based / top-down-swarm branch of the 2026 world-model taxonomy; see [`docs/positioning/world-model-mapping.md`](positioning/world-model-mapping.md) for the placement against adjacent categories.
 
 This document covers the full system: how scenarios become simulations, how the agent swarm runs (leader → specialists → cells), how tools get forged at runtime, how the swarm exposes itself to consumers via the public API, how the chat system maintains character consistency, and how the universal schema enables arbitrary scenario types.
 
@@ -528,7 +528,7 @@ The SSE `systems_snapshot` event is what drives the live LivingSwarmGrid viz on 
 
 ### Why top-down, not bottom-up
 
-Bottom-up swarm simulators (OASIS, MiroFish, classical ABM) put behavior in each agent and wait for emergent collective dynamics to surface. Paracosm puts behavior in the *leader*, treats the swarm as a population that reacts to leader decisions, and measures divergence by swapping leaders.
+Bottom-up swarm simulators (OASIS, MiroFish, classical ABM) put behavior in each agent and wait for emergent collective dynamics to surface. Paracosm runs one scenario as timelines with a top-down swarm, where specialists report and the population reacts to decisions. Each timeline’s event director writes unscripted crises from its state. From the same start, change the leader or an event at a past turn and compare the outcomes.
 
 The economic argument: a 1000-agent bottom-up sim runs ~1000 LLM calls per turn ($10–$100/run minimum). A 100-agent top-down sim runs ~10 LLM calls per turn (~$0.10–$1/run). The top-down shape keeps cost in the right band for decision-support usage while still producing measurable per-agent state. Swarm dynamics that need richer per-cell autonomy land as opt-in `swarmDynamics` modes (Phase 2 spec, not yet shipped).
 
