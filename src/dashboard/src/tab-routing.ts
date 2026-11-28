@@ -175,3 +175,21 @@ export function createReportTurnHref(href: string, turn: number): string {
   url.hash = `turn-${turn}`;
   return url.toString();
 }
+
+/** A recorded turn or the verdict at the end of the run. */
+export type WatchTurn = number | 'end';
+
+/** Reads the addressed playhead position once the matching run arrives. */
+export function watchTurnFromHref(href: string): WatchTurn | null {
+  const value = new URL(href).searchParams.get('watchTurn');
+  if (value === 'end') return value;
+  return value && /^(?:[1-9][0-9]?|100)$/.test(value) ? Number(value) : null;
+}
+
+/** Changes only the Watch position. */
+export function createWatchTurnHref(href: string, turn: WatchTurn | null): string {
+  const url = new URL(href);
+  if (turn === null) url.searchParams.delete('watchTurn');
+  else url.searchParams.set('watchTurn', String(turn));
+  return url.toString();
+}

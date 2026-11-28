@@ -4,6 +4,7 @@ import type { ActorSideState } from '../../hooks/useGameState';
 import { getActorColorVar } from '../../hooks/useGameState';
 import type { ToolRegistry } from '../../hooks/useToolRegistry';
 import { useScenarioContext } from '../../App';
+import { OneRowScroller } from '../shared/OneRowScroller';
 import { formatBagTooltip, formatHeaderMetric, headerMetricValue } from './StatsBar.helpers';
 import styles from './StatsBar.module.scss';
 
@@ -18,6 +19,8 @@ interface StatsBarProps {
    *  in the pills row. */
   actors: StatsBarLeader[];
   crisisText?: string;
+  /** Recorded turn shown in Watch. */
+  selectedTurn?: number;
   /** Per-simulation forged-tool registry. Used to surface per-actor reuse
    *  counts so users can see how much each actor leaned on emergent tools
    *  across the run. */
@@ -85,7 +88,44 @@ function formatCauses(causes: Record<string, number> | undefined): string {
   return rest > 0 ? `${top.join(' \u00b7 ')} +${rest}` : top.join(' \u00b7 ');
 }
 
-export function StatsBar({ actors, crisisText, toolRegistry }: StatsBarProps) {
+export function StatsBar({ actors, crisisText, toolRegistry, selectedTurn }: StatsBarProps) {
+  if (selectedTurn !== undefined) return <RecordedStats actors={actors} turn={selectedTurn} />;
+  return <CurrentStats actors={actors} crisisText={crisisText} toolRegistry={toolRegistry} />;
+}
+
+function RecordedStats({ actors, turn }: { actors: StatsBarLeader[]; turn: number }) {
+  const scenario = useScenarioContext();
+  const sides = actors.map(actor => {
+    const done = actor.state.events.filter(event => event.type === 'turn_done' && event.turn !== undefined);
+    const current = done.find(event => event.turn === turn);
+    const previous = done.reduce<typeof current>((latest, event) =>
+      event.turn! < turn && (!latest || event.turn! > latest.turn!) ? event : latest, undefined);
+    return { id: actor.id, current, previous };
+  });
+  if (!sides.some(side => side.current)) return null;
+  return (
+    <OneRowScroller label="figures" role="region" ariaLabel="Leader statistics">
+      {scenario.ui.headerMetrics.map(metric => {
+        const label = SHORT_LABELS[metric.id] ?? metric.id.replace(/([A-Z])/g, ' $1').trim();
+        return <div className={styles.pill} key={metric.id} style={{ color: 'var(--text-1)', font: '400 var(--font-read)/1.4 var(--sans)' }}>
+          <span>{label}</span>
+          {sides.map(({ id, current, previous }, index) => {
+            const value = (current?.data.metrics as Record<string, unknown> | undefined)?.[metric.id];
+            const prior = (previous?.data.metrics as Record<string, unknown> | undefined)?.[metric.id];
+            const shown = typeof value === 'number' ? formatHeaderMetric(value, metric) : 'Figure unavailable';
+            const change = typeof value === 'number' && typeof prior === 'number'
+              ? delta(headerMetricValue(value, metric), headerMetricValue(prior, metric)) : '';
+            return <span key={id} aria-label={`${id}: ${shown}${change ? `, ${change}` : ''}`}>
+              <span aria-hidden="true">{index + 1} </span><span>{shown}</span>{change && <> ({change})</>}
+            </span>;
+          })}
+        </div>;
+      })}
+    </OneRowScroller>
+  );
+}
+
+function CurrentStats({ actors, crisisText, toolRegistry }: StatsBarProps) {
   const scenario = useScenarioContext();
 
   const aLeader = actors[0];

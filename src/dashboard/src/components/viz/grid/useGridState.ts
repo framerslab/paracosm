@@ -41,6 +41,8 @@ interface UseGridStateInputs {
    * for each change of what it draws.
    */
   still?: boolean;
+  /** Holds the active animation at its current frame. */
+  paused?: boolean;
   /** Paint deadlines that can settle a reveal while continuous drawing is paused. */
   paintTimes?: React.RefObject<number[]>;
 }
@@ -92,6 +94,10 @@ export function useGridState(
     if (!snap) return;
     if (snap.turn === prevTurnRef.current) return;
     prevTurnRef.current = snap.turn;
+    if (inputs.paused) {
+      flareQueueRef.current = createFlareQueue();
+      return;
+    }
 
     if (!prev) return;
     const positions = positionLookup();
@@ -147,12 +153,12 @@ export function useGridState(
         }
       }
     }
-  }, [inputs.snapshot, inputs.previousSnapshot, inputs.eventCategories, positionLookup]);
+  }, [inputs.snapshot, inputs.previousSnapshot, inputs.eventCategories, inputs.paused, positionLookup]);
 
   // Forge + reuse — fire whenever new cumulative entries land (not just
   // at turn_done, since the runtime can stream forge events mid-turn).
   useEffect(() => {
-    if (!deptCenterLookup) return;
+    if (!deptCenterLookup || inputs.paused) return;
     const centers = deptCenterLookup();
     if (centers.size === 0) return;
 
@@ -185,7 +191,7 @@ export function useGridState(
         totalFrames: 40,
       });
     }
-  }, [inputs.forgeAttempts, inputs.reuseCalls, deptCenterLookup]);
+  }, [inputs.forgeAttempts, inputs.reuseCalls, inputs.paused, deptCenterLookup]);
 
   // Visibility + intersection → pause.
   useEffect(() => {
@@ -214,8 +220,10 @@ export function useGridState(
   // and for a panel at rest, the animation loop is suppressed; render
   // still happens on snapshot change via a single bump below.
   const still = inputs.still === true;
+  const paused = inputs.paused === true;
   const paintTimes = inputs.paintTimes;
   useEffect(() => {
+    if (paused) return;
     if (reducedMotion || still) {
       // One render per snapshot change is enough under reduced motion;
       // bump tickClock so the canvas paints the current state.
@@ -245,7 +253,7 @@ export function useGridState(
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [paintTimes, reducedMotion, still]);
+  }, [paintTimes, paused, reducedMotion, still]);
 
   return { flares: activeFlares(flareQueueRef.current), tickClock };
 }

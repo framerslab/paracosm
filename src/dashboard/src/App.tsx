@@ -8,6 +8,7 @@ import { clearRunLaunchHandoff, readRunLaunchHandoff } from './scenario-sync';
 import { ADMIN_TOKEN_HEADER, ADMIN_TOKEN_WHERE, adminTokenState, clearAdminToken, dropUnsendableAdminToken, readAdminToken, subscribeAdminToken } from './admin-token';
 import { deriveLabels } from './hooks/useScenarioLabels.helpers';
 import { useSSE, type SimEvent } from './hooks/useSSE';
+import { useRunPlayhead } from './hooks/useRunPlayhead';
 import { useGameState } from './hooks/useGameState';
 import { useGamePersistence } from './hooks/useGamePersistence';
 import { useLocalHistory } from './hooks/useLocalHistory';
@@ -68,6 +69,7 @@ import {
   createDashboardTabHref,
   createSettingsKeyHref,
   createToolLogHref,
+  createWatchTurnHref,
   DASHBOARD_TABS,
   getDashboardTabAndSubFromHref,
   type DashboardTab,
@@ -343,11 +345,11 @@ function AppContent() {
     }
     if (tab === 'settings') setSettingsInitialSubTab('config');
     setActiveTabState(tab);
-    window.history.replaceState({}, '', createDashboardTabHref(window.location.href, tab));
+    window.history.replaceState(window.history.state, '', createDashboardTabHref(window.location.href, tab));
   }, []);
   const openReportTurn = useCallback((href: string) => {
     setActiveTabState('reports');
-    window.history.replaceState({}, '', href);
+    window.history.replaceState(window.history.state, '', href);
   }, []);
   const changeFrameTab = useCallback((tab: DashboardTab) => {
     if (tab !== activeTab) sendEvent('tab_change', { to: tab });
@@ -362,7 +364,7 @@ function AppContent() {
     if (options?.logTool || options?.logActor) {
       setSettingsInitialSubTab('log');
       setActiveTabState('settings');
-      window.history.replaceState({}, '', createToolLogHref(window.location.href, options.logTool ?? '', options.logActor));
+      window.history.replaceState(window.history.state, '', createToolLogHref(window.location.href, options.logTool ?? '', options.logActor));
       return;
     }
     setActiveTab(tab);
@@ -472,10 +474,10 @@ function AppContent() {
     leaveDigitalTwin();
     setLaunchedRun(runKey ? { runKey, usedVisitorKey } : null);
     const url = new URL(window.location.href);
-    if (!url.searchParams.has('replay')) return;
+    const wasReplay = url.searchParams.has('replay');
     url.searchParams.delete('replay');
-    window.history.replaceState(window.history.state, '', url.toString());
-    window.dispatchEvent(new PopStateEvent('popstate'));
+    window.history.replaceState(window.history.state, '', createWatchTurnHref(url.toString(), null));
+    if (wasReplay) window.dispatchEvent(new PopStateEvent('popstate'));
   }, [leaveDigitalTwin]);
 
   // A run on this page's feed is running. A kept run or a run file loaded
@@ -1057,6 +1059,26 @@ function AppContent() {
   // The status bar's spend is the run its progress shows: a Digital Twin's
   // own when the page shows one.
   const shownRunCost = (showsDigitalTwin ? interventionState : gameState).cost;
+  const pairWatch = !showsDigitalTwin && gameState.actorIds.length === 2;
+  const pairIdentity = pairWatch
+    ? sse.runKey ?? (replaySessionId ? `replay:${replaySessionId}` : `recording:${sse.loadedRuns}`)
+    : null;
+  const pairTurns = useMemo(() => {
+    if (!pairWatch) return [];
+    const turns = new Set<number>();
+    for (const id of gameState.actorIds) {
+      for (const event of gameState.actors[id].events) {
+        if (event.turn !== undefined && event.turn > 0) turns.add(event.turn);
+      }
+    }
+    return [...turns].sort((a, b) => a - b);
+  }, [gameState, pairWatch]);
+  const stoppedPair = pairWatch && (gameState.isAborted || sse.isAborted);
+  const pairEndReady = pairWatch && !stoppedPair && sse.isComplete &&
+    Boolean(ownVerdict?.winner || ownVerdict?.skipped ||
+      (replaySessionId && sse.replayDone) || sse.loadedRuns && !sse.runKey && sse.replayDone);
+  const playhead = useRunPlayhead(pairIdentity, pairTurns, pairEndReady);
+  const showStatusCost = !pairWatch || (launchedRun?.runKey === sse.runKey && launchedRun?.usedVisitorKey === true);
   const wipeServer = adminTokenSaved && serverAdminWrite === true ? handleWipeServer : undefined;
 
   return (
@@ -1193,6 +1215,9 @@ function AppContent() {
                     state={gameState}
                     sseStatus={sse.status}
                     openReportTurn={openReportTurn}
+                    playhead={playhead}
+                    pairTurns={pairTurns}
+                    stoppedPair={stoppedPair}
                     verdict={sse.verdict}
                     shownRun={shownRun}
                     launching={launching}
@@ -1216,7 +1241,7 @@ function AppContent() {
                   tabIndex={-1}
                   className={styles.tabPanel}
                 >
-                  <SwarmViz key={shownRun} state={gameState} isReplay={replaySessionId !== null} onNavigateToChat={navigateToChat} />
+                  <SwarmViz key={shownRun} state={gameState} playhead={pairWatch ? playhead : undefined} stoppedPair={stoppedPair} isReplay={replaySessionId !== null} onNavigateToChat={navigateToChat} />
                 </section>
               )}
 
@@ -1350,14 +1375,15 @@ function AppContent() {
           {runExists && <RunStatusBar
             progress={{
               gameState: showsDigitalTwin ? interventionState : gameState,
+              hideTrack: pairWatch && activeTab === 'sim',
               // The twin's progress counts the twin's own fallbacks.
               validationFallbacks: showsDigitalTwin && sse.ownRun ? sse.ownRun.validationFallbacks : sse.validationFallbacks,
             }}
-            cost={{
+            cost={showStatusCost ? {
               totalTokens: (shownRunCost?.totalTokens ?? 0) + chatUsage.totalTokens,
               totalCostUSD: Math.round(((shownRunCost?.totalCostUSD ?? 0) + chatUsage.costUSD) * 10000) / 10000,
               llmCalls: (shownRunCost?.llmCalls ?? 0) + chatUsage.calls,
-            }}
+            } : undefined}
             costBreakdown={{
               simUSD: shownRunCost?.totalCostUSD ?? 0,
               simCalls: shownRunCost?.llmCalls ?? 0,

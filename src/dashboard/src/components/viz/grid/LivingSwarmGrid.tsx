@@ -145,6 +145,8 @@ interface LivingSwarmGridProps {
    * Omitted, the panel plays as it does on the Viz tab.
    */
   resting?: boolean;
+  /** Freeze the pictured colony while the playhead is held. */
+  paused?: boolean;
 }
 
 /** The live tile strength of a playing panel, by look; see the note where the tiles draw. */
@@ -220,6 +222,7 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
     header,
     nameLabels,
     resting = false,
+    paused = false,
   } = props;
   const isFocused = focusedSide === side;
   const hasHeader = header !== undefined;
@@ -264,7 +267,8 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
    * the tab a smooth "curtain rise" on mount without requiring any
    * per-frame redraw. Reduced-motion users get instant reveal.
    */
-  const [revealed, setRevealed] = useState(reducedMotion);
+  const [revealed, setRevealed] = useState(reducedMotion || paused);
+  const revealCoverRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (reducedMotion) {
       setRevealed(true);
@@ -275,6 +279,12 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
     const raf = requestAnimationFrame(() => setRevealed(true));
     return () => cancelAnimationFrame(raf);
   }, [reducedMotion]);
+  useEffect(() => {
+    for (const animation of revealCoverRef.current?.getAnimations() ?? []) {
+      if (paused) animation.pause();
+      else if (animation.playState === 'paused') animation.play();
+    }
+  }, [paused]);
   // Conway Game of Life ambient overlay. Seeded from colonist
   // mood + position on turn change (5 warmup ticks to stabilize into
   // recognizable Conway patterns), and advanced one generation per
@@ -303,6 +313,9 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
   // painting its whole steady state in one frame. See golReveal.ts.
   const golRevealStartRef = useRef<number>(Number.NEGATIVE_INFINITY);
   const revealPaintTimes = useRef<number[]>([]);
+  const lastDrawTime = useRef<number | null>(null);
+  const frozenAt = useRef<number | null>(null);
+  const frozenDuration = useRef(0);
 
   // Relationship-flare: when a colonist is clicked, brighten their
   // partner/child arcs briefly (~1s decay). Ref, not state, so the
@@ -393,6 +406,7 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
       reuseCalls,
       eventCategories: snapshot?.eventCategories,
       still: resting,
+      paused,
       paintTimes: vizPanel ? revealPaintTimes : undefined,
     },
     canvasWrapRef,
@@ -405,11 +419,11 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
   // the look's tokens each time it draws.
   const [lookTick, setLookTick] = useState(0);
   useEffect(() => {
-    if (!resting || typeof MutationObserver === 'undefined') return;
+    if ((!resting && !paused) || typeof MutationObserver === 'undefined') return;
     const observer = new MutationObserver(() => setLookTick(tick => tick + 1));
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
     return () => observer.disconnect();
-  }, [resting]);
+  }, [resting, paused]);
 
   // The people's names as text over the field (`nameLabels`): each name's
   // own size is read from the page once it is laid out, again when the
@@ -515,6 +529,14 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
     if (!overlay || !snapshot || size.w === 0 || size.h === 0) return;
     const ctx = overlay.getContext('2d');
     if (!ctx) return;
+    const now = performance.now();
+    if (paused) frozenAt.current ??= lastDrawTime.current ?? now;
+    else if (frozenAt.current !== null) {
+      frozenDuration.current += now - frozenAt.current;
+      frozenAt.current = null;
+    }
+    lastDrawTime.current = frozenAt.current ?? now;
+    const frameTime = lastDrawTime.current - frozenDuration.current;
 
     // Apply the chronicle-strip filter here so the user's "show me
     // only forges" / "only crises" choice propagates through to the
@@ -636,9 +658,12 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
       // on this panel: ease the tile layer in instead of painting the full
       // steady state in one frame. Single-turn advances (a live run,
       // playback) reseed in place.
-      if (!reducedMotion && !resting && ((turnChanged && isJumpReveal(prevGolTurn, snapshot.turn)) || actorChanged)) {
+      if (paused) {
+        golRevealStartRef.current = Number.NEGATIVE_INFINITY;
+        revealPaintTimes.current = [];
+      } else if (!reducedMotion && !resting && ((turnChanged && isJumpReveal(prevGolTurn, snapshot.turn)) || actorChanged)) {
         const began = performance.now();
-        golRevealStartRef.current = began;
+        golRevealStartRef.current = frameTime;
         // A scrub can start with the grid offscreen. Let that canvas paint
         // during the fade and settle at full strength for capture.
         if (vizPanel) revealPaintTimes.current = [began + GOL_REVEAL_MS / 6, began + GOL_REVEAL_MS];
@@ -646,7 +671,7 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
       lastFlareSignatureRef.current = visibleFlares.length
         ? `${visibleFlares[0].kind}|${visibleFlares[0].x}|${visibleFlares[0].y}`
         : null;
-    } else if (visibleFlares.length > 0) {
+    } else if (!paused && visibleFlares.length > 0) {
       // Detect a newly-added flare via signature of the first flare
       // (queue is stable order; new flares push to front). When a new
       // event arrives, inject its effect + advance one generation so
@@ -677,7 +702,7 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
       ? RESTING_TILE_STRENGTH
       : golRevealAlpha(
           isLightTheme ? PLAYING_TILE_STRENGTH.light : PLAYING_TILE_STRENGTH.dark,
-          performance.now() - golRevealStartRef.current,
+          frameTime - golRevealStartRef.current,
           GOL_REVEAL_MS,
           reducedMotion,
         );
@@ -736,7 +761,7 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
         glyphIntensity,
         divergedIds,
         mode === 'divergence',
-        reducedMotion ? 0 : performance.now(),
+        reducedMotion ? 0 : frameTime,
         searchQuery,
         // Always-on labels for featured + diverged, unless the names are
         // set as text over the field.
@@ -775,7 +800,7 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
         snapshot.cells,
         positions,
         divergedIds,
-        reducedMotion ? 0 : performance.now(),
+        reducedMotion ? 0 : frameTime,
         resolvedSide,
       );
     }
@@ -902,6 +927,7 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
     forgeAttempts,
     eventFilter,
     resting,
+    paused,
     hasHeader,
     vizPanel,
     domNames,
@@ -1186,6 +1212,7 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
         {!vizPanel && (
           <div
             aria-hidden="true"
+            ref={revealCoverRef}
             className={styles.revealCover}
             style={{ '--reveal-opacity': revealed ? '0' : '1' } as CSSProperties}
           />

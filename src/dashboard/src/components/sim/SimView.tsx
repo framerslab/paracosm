@@ -1,5 +1,7 @@
 import { Fragment, useRef, useEffect, useState, useMemo, useCallback } from 'react';
 import type { GameState, LeaderInfo } from '../../hooks/useGameState';
+import type { RunPlayhead } from '../../hooks/useRunPlayhead';
+import { RunPlayBar } from './RunPlayBar';
 import { useScenarioContext } from '../../App';
 import { leaderUnit } from '../../hooks/useScenarioLabels.helpers';
 import { readActiveRunActors } from '../../hooks/useLastLaunchConfig';
@@ -31,6 +33,9 @@ import styles from './SimView.module.scss';
 
 interface SimViewProps {
   state: GameState;
+  playhead: RunPlayhead;
+  pairTurns: readonly number[];
+  stoppedPair: boolean;
   sseStatus?: string;
   openReportTurn?: (href: string) => void;
   verdict?: Record<string, unknown> | null;
@@ -69,7 +74,7 @@ interface SimViewProps {
 // turn-aligned grid groups events by turn across both leaders so the
 // per-leader column is no longer a meaningful unit.
 
-export function SimView({ state, sseStatus, openReportTurn, verdict, shownRun, launching = false, interventionArtifact, interventionRunning, interventionState = state, onInterventionDismiss }: SimViewProps) {
+export function SimView({ state, playhead, pairTurns, stoppedPair, sseStatus, openReportTurn, verdict, shownRun, launching = false, interventionArtifact, interventionRunning, interventionState = state, onInterventionDismiss }: SimViewProps) {
   const scenario = useScenarioContext();
   // Digital-twin short-circuit: when the dashboard receives an artifact
   // produced by simulateIntervention (subject + intervention populated),
@@ -171,15 +176,25 @@ export function SimView({ state, sseStatus, openReportTurn, verdict, shownRun, l
   const [place, setPlace] = useState(() => typeof window === 'undefined' ? 0 : watchPlaceFromHref(window.location.href));
   const selectPlace = (next: number) => {
     setPlace(next);
-    window.history.replaceState({}, '', createWatchPlaceHref(window.location.href, next));
+    window.history.replaceState(window.history.state, '', createWatchPlaceHref(window.location.href, next));
   };
   const [stack, setStack] = useState<string | null>(null);
   const showingStack = stack === (shownRun ?? '');
   const pair = state.actorIds.length === 2;
-  const pairTurns = useMemo(() => pair
-    ? [...new Set(state.actorIds.flatMap(id => state.actors[id].events.flatMap(e => e.turn && e.turn > 0 ? [e.turn] : [])))].sort((a, b) => a - b)
-    : [], [pair, state]);
-  const turn = pairTurns.at(-1) ?? 1;
+  const atEnd = pair && playhead.selected === 'end';
+  const turn = typeof playhead.selected === 'number' ? playhead.selected : playhead.newest ?? 1;
+  const paused = playhead.mode === 'hold' || atEnd || (stoppedPair && playhead.mode !== 'replay');
+  const focusTurn = () => {
+    setStack(null);
+    requestAnimationFrame(() => document.getElementById('watch-turn-heading')?.focus({ preventScroll: true }));
+  };
+  const turnTitle = (number: number) => {
+    const event = sideA?.events.find(event => event.turn === number && event.type === 'event_start') ??
+      sideB?.events.find(event => event.turn === number && event.type === 'event_start');
+    const when = event?.time === undefined ? '' : `, ${event.time}`;
+    const title = typeof event?.data.title === 'string' ? `: ${event.data.title}` : '';
+    return `Turn ${number}${when}${title}`;
+  };
   const data = useMemo(() => pairTurnAt(state, turn), [state, turn]);
   const [firstEvidence, setFirstEvidence] = useState<{ run: string | undefined; turn: number } | null>(null);
   useEffect(() => {
@@ -221,21 +236,14 @@ export function SimView({ state, sseStatus, openReportTurn, verdict, shownRun, l
   // Exit Replay can clear the actor list while retaining the loaded verdict
   // until the live stream names a run. Keep the same panel across that switch
   // so a reader's collapsed state survives.
-  const verdictPanel = state.isComplete && verdict?.winner
+  const verdictPanel = state.isComplete && verdict?.winner && (!pair || atEnd)
     ? <VerdictPanel key="verdict" verdict={verdict} shownRun={shownRun} pairTone={pair} />
     : null;
 
   const pairBody = (
     <Fragment key="pair">
-      {state.isRunning && !state.isComplete && state.maxTurns > 0 && (
-        <div className={styles.progressBar}>
-          <span className={styles.progressLabel}>Turn {turn} / {state.maxTurns}</span>
-          <div className={styles.progressTrack}><div className={styles.progressFill} style={{ width: `${progressPercent}%` }} /></div>
-          <span className={styles.progressPercent}>{Math.round(progressPercent)}%</span>
-        </div>
-      )}
       {showingStack ? <>
-        <WatchGridPanels state={state} place={place} onSelectPlace={selectPlace} />
+        <WatchGridPanels state={state} place={place} onSelectPlace={selectPlace} turn={turn} paused={paused} />
         <button type="button" className={styles.watchKey} onClick={() => {
           setStack(null);
           requestAnimationFrame(() => document.getElementById('watch-turn-heading')?.focus());
@@ -247,6 +255,9 @@ export function SimView({ state, sseStatus, openReportTurn, verdict, shownRun, l
           />)}
         </div>
         <div className={`${styles.turnRows} ${styles.watchHistory}`}><TurnGrid state={state} /></div>
+      </> : atEnd ? <>
+        {!verdictPanel && <p className={styles.watchWaiting}>No verdict came back for this run.</p>}
+        <WatchGridPanels state={state} place={place} onSelectPlace={selectPlace} turn={turn} paused={paused} />
       </> : <PairTurn
         key={`${shownRun}:${turn}`}
         turn={turn} maxTurns={state.maxTurns} data={data} place={place}
@@ -259,8 +270,9 @@ export function SimView({ state, sseStatus, openReportTurn, verdict, shownRun, l
           event.preventDefault();
           openReportTurn(reportHref);
         } : undefined}
-        grid={<WatchGridPanels state={state} place={place} onSelectPlace={selectPlace} />}
+        grid={<WatchGridPanels state={state} place={place} onSelectPlace={selectPlace} turn={turn} paused={paused} />}
       />}
+      {!showingStack && <StatsBar selectedTurn={turn} actors={state.actorIds.map(id => ({ id, state: state.actors[id] }))} />}
       {!showingStack && pairTurns.length >= 2 && <button type="button" className={styles.watchKey}
         onClick={() => setStack(shownRun ?? '')}>Read all {pairTurns.length} turns at once</button>}
     </Fragment>
@@ -443,8 +455,10 @@ export function SimView({ state, sseStatus, openReportTurn, verdict, shownRun, l
 
   return (
     <div className={styles.root}>
+      {pair && <RunPlayBar playhead={playhead} arrivedTurns={pairTurns} maxTurns={state.maxTurns}
+        stopped={stoppedPair} turnTitle={turnTitle} focusTurn={focusTurn} />}
       <div className={styles.scrollableBody}>
-        {pair ? [pairBody, verdictPanel] : [verdictPanel, cohortBody]}
+        {[verdictPanel, pair ? pairBody : cohortBody]}
       </div>
       <SimFooterBar
         citationRegistry={citationRegistry}
