@@ -55,9 +55,9 @@ export function isUnservedTarball(stderr) {
 function runNpm(args, cwd, onStderr) {
   return new Promise((resolve, reject) => {
     const child = spawn('npm', args, { cwd, stdio: ['inherit', 'inherit', 'pipe'] });
-    child.stderr.setEncoding('utf8').on('data', onStderr);
     child.once('error', reject);
     child.once('close', (status, signal) => resolve({ status, signal }));
+    child.stderr?.setEncoding('utf8').on('data', onStderr);
   });
 }
 
