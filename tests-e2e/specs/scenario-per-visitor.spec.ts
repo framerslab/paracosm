@@ -386,6 +386,8 @@ test.describe('Scenario per visitor @scenario', () => {
     await expect(fork).toBeDisabled();
 
     if (process.env.FORK_EVENT_PICTURES) {
+      const notifications = page.getByRole('status', { name: 'Notifications' });
+      await expect(notifications.getByRole('button', { name: 'Dismiss', exact: true })).toHaveCount(0);
       for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 960 }]) {
         await page.setViewportSize(viewport);
         for (const look of ['dark', 'light'] as const) {
