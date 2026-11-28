@@ -29,6 +29,8 @@ interface TopBarProps {
    * request.
    */
   onRunActionsOpen?: () => void;
+  onWatchStop?: () => void;
+  onRunDetails?: () => void;
   /**
    * Opens and closes the How it works card. The key shows where this is
    * given, says whether the card is open, and is reached through
@@ -66,7 +68,7 @@ function LookMark({ dark }: { dark: boolean }) {
 /** Shows the shared dashboard controls and the visitor's payer or quota. */
 export function TopBar({
   activeTab, onTabChange, scenario, hasEvents, onSave, onClear, onWipeServer, onRunActionsOpen,
-  onHowItWorks, howItWorksOpen = false, howItWorksKeyRef, onCopy, onShareViz, runExists,
+  onWatchStop, onRunDetails, onHowItWorks, howItWorksOpen = false, howItWorksKeyRef, onCopy, onShareViz, runExists,
 }: TopBarProps) {
   const { resolved, setTheme } = useTheme();
   const dark = resolved === 'dark';
@@ -172,7 +174,8 @@ export function TopBar({
                 aria-haspopup="menu"
                 aria-expanded={overflowOpen}
                 aria-label={overflowOpen ? 'Close run actions' : 'Open run actions menu'}
-                title="Save · Share · Copy · Wipe"
+                id="run-actions-key"
+                title="Run actions"
                 className={styles.iconButton}
               >
                 ⋯
@@ -185,6 +188,18 @@ export function TopBar({
                   className={styles.overflowMenu}
                   onKeyDown={moveInRunActions}
                 >
+                  {onWatchStop && (
+                    <button role="menuitem" type="button" className={styles.overflowItem}
+                      onClick={() => { setOverflowOpen(false); onWatchStop(); }}>
+                      Stop the run
+                    </button>
+                  )}
+                  {onRunDetails && (
+                    <button role="menuitem" type="button" className={styles.overflowItem}
+                      onClick={() => { setOverflowOpen(false); onRunDetails(); }}>
+                      Run details
+                    </button>
+                  )}
                   {hasEvents && onSave && (
                     <button
                       role="menuitem"

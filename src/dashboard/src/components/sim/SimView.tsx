@@ -37,6 +37,7 @@ interface SimViewProps {
   playhead: RunPlayhead;
   pairTurns: readonly number[];
   stoppedPair: boolean;
+  watchRun?: boolean;
   sseStatus?: string;
   openReportTurn?: (href: string) => void;
   verdict?: Record<string, unknown> | null;
@@ -75,7 +76,7 @@ interface SimViewProps {
 // turn-aligned grid groups events by turn across both leaders so the
 // per-leader column is no longer a meaningful unit.
 
-export function SimView({ state, playhead, pairTurns, stoppedPair, sseStatus, openReportTurn, verdict, shownRun, launching = false, interventionArtifact, interventionRunning, interventionState = state, onInterventionDismiss }: SimViewProps) {
+export function SimView({ state, playhead, pairTurns, stoppedPair, watchRun = false, sseStatus, openReportTurn, verdict, shownRun, launching = false, interventionArtifact, interventionRunning, interventionState = state, onInterventionDismiss }: SimViewProps) {
   const scenario = useScenarioContext();
   // Digital-twin short-circuit: when the dashboard receives an artifact
   // produced by simulateIntervention (subject + intervention populated),
@@ -228,7 +229,7 @@ export function SimView({ state, playhead, pairTurns, stoppedPair, sseStatus, op
 
   const online = useOnline();
   const replayRequested = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('replay');
-  if (!state.isRunning && !state.isComplete && !hasEvents && !launching && !replayRequested && (sseStatus === 'connected' || !online)) {
+  if (!state.isRunning && !state.isComplete && !hasEvents && !launching && !watchRun && !replayRequested && (sseStatus === 'connected' || !online)) {
     return <EmptyTab kind="watch" />;
   }
 
@@ -382,7 +383,7 @@ export function SimView({ state, playhead, pairTurns, stoppedPair, sseStatus, op
           when this state mounts. Spinner is aria-hidden — purely
           decorative, the visible "Simulation starting..." text is the
           accessible signal. */}
-      {showLoading && !hasEvents && !state.isComplete && state.turn === 0 && (
+      {!watchRun && showLoading && !hasEvents && !state.isComplete && state.turn === 0 && (
         <div className={styles.centerState} role="status" aria-live="polite">
           <span className={`spinner ${styles.centerStateSpinnerSmall}`} aria-hidden="true" />
           <div className={styles.centerStateHeading}>Simulation starting...</div>
@@ -393,7 +394,7 @@ export function SimView({ state, playhead, pairTurns, stoppedPair, sseStatus, op
       )}
 
       {/* Launching state: user clicked Run, waiting for first events */}
-      {launching && !hasEvents && !state.isRunning && (
+      {!watchRun && launching && !hasEvents && !state.isRunning && (
         <div className={styles.centerState} role="status" aria-live="polite">
           <span className={`spinner ${styles.centerStateSpinnerLarge}`} aria-hidden="true" />
           <div className={styles.centerStateHeadingAmber}>Launching Simulation...</div>

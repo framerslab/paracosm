@@ -5,6 +5,36 @@ import { consumeScenarioSwitched, subscribeLaunched } from '../scenario-sync';
 import { refreshOnSimSaved, savedSessions } from './useSessions';
 import { RunProvenanceSchema } from '../../../engine/schema/primitives.js';
 import type { RunArtifact, RunProvenance } from '../../../engine/schema/index.js';
+import type { Payer } from '../components/quickstart/first-screen/effectiveLaunch';
+import { estimateQuickstartCostUSD } from '../components/quickstart/SeedInput.helpers';
+
+export interface RunFacts {
+  name?: string;
+  payer: Payer | 'unknown';
+  leaders?: number;
+  turns?: number;
+  seed?: number;
+  startedAt?: number;
+  estimate?: number;
+}
+
+function readRunFacts(data: Record<string, unknown> | null): RunFacts {
+  const value = data?.payer;
+  const payer = value === 'host' || value === 'own' || value === 'server' ? value : 'unknown';
+  const leaders = typeof data?.leaders === 'number' && Number.isInteger(data.leaders) && data.leaders > 0
+    ? data.leaders : undefined;
+  return {
+    name: typeof data?.name === 'string' ? data.name : undefined,
+    payer,
+    leaders,
+    turns: typeof data?.turns === 'number' && Number.isInteger(data.turns) && data.turns > 0 ? data.turns : undefined,
+    seed: typeof data?.seed === 'number' && Number.isFinite(data.seed) ? data.seed : undefined,
+    startedAt: typeof data?.startedAt === 'number' && Number.isFinite(new Date(data.startedAt).getTime()) ? data.startedAt : undefined,
+    estimate: payer === 'own' && leaders ? estimateQuickstartCostUSD(leaders) : undefined,
+  };
+}
+
+type StopResult = 'stopped' | 'ended' | 'replaced' | 'failed' | 'stale';
 
 /**
  * Event type strings the dashboard consumes.
@@ -100,6 +130,8 @@ interface SSEState {
   status: 'connecting' | 'connected' | 'error' | 'replay_not_found';
   events: SimEvent[];
   provenance: RunProvenance | null;
+  runFacts: RunFacts | null;
+  stoppedByReader: boolean;
   results: Array<{
     leader: string;
     summary: Record<string, unknown>;
@@ -244,7 +276,7 @@ export interface UseSSEOptions {
 /** The run fields of SSEState, empty: a page that holds no run. */
 function emptyRun(): Omit<SSEState, 'status' | 'replayDone' | 'ownRunScenarioId' | 'heldOwnRun' | 'runKey' | 'loadedRuns'> {
   return {
-    events: [], provenance: null, results: [], verdict: null, verdictRunKey: null, finishRunKey: null,
+    events: [], provenance: null, runFacts: null, stoppedByReader: false, results: [], verdict: null, verdictRunKey: null, finishRunKey: null,
     simSaved: null, forkOutcome: null, errors: [], isComplete: false, isAborted: false, abortReason: null,
     providerError: null, validationFallbacks: [],
   };
@@ -301,6 +333,8 @@ export function useSSE(options: UseSSEOptions = {}) {
   // run, which the page starts clean on unless it is a fork, the branch
   // of the run the page holds. Read when an event arrives, as above.
   const runKeyRef = useRef<string | null>(null);
+  const pendingStopRef = useRef<{ key: string; cleared: boolean } | null>(null);
+  const retainedStopRef = useRef<string | null>(null);
   // The key of the run this page started itself (followRun), a Digital Twin
   // run, null otherwise. The page minted the key and named it in its request,
   // so it knows its own run from any other on the stream. That run is shown
@@ -349,6 +383,8 @@ export function useSSE(options: UseSSEOptions = {}) {
     // The run is gone; the next run names its scenario.
     runScenarioIdRef.current = null;
     runKeyRef.current = null;
+    pendingStopRef.current = null;
+    retainedStopRef.current = null;
     ownRunKeyRef.current = null;
     shownFromFileRef.current = false;
     setState(prev => ({
@@ -387,6 +423,43 @@ export function useSSE(options: UseSSEOptions = {}) {
       // sees the empty state regardless.
     }
   }, [clearLocalRun]);
+
+  const stopRun = useCallback(async (runKey: string): Promise<StopResult> => {
+    if (replaySessionId || shownFromFileRef.current || runKeyRef.current !== runKey || pendingStopRef.current) return 'stale';
+    const pending = { key: runKey, cleared: false };
+    pendingStopRef.current = pending;
+    let result: StopResult = 'failed';
+    try {
+      const response = await fetch('/clear', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ runKey, stop: true }),
+      });
+      if (response.ok) {
+        const answer = await response.json();
+        if (answer?.cleared === true && answer.runKey === runKey) result = 'stopped';
+        if (answer?.cleared === false) {
+          if (answer.reason === 'ended' || answer.reason === 'no_run') result = 'ended';
+          if (answer.reason === 'not_current') result = 'replaced';
+        }
+      }
+    } catch { /* Keep the run available if the request could not reach the server. */ }
+    if (pendingStopRef.current !== pending || runKeyRef.current !== runKey) return 'stale';
+    pendingStopRef.current = null;
+    if (result === 'stopped') {
+      retainedStopRef.current = runKey;
+      setState(prev => ({
+        ...prev, isComplete: true, isAborted: true, stoppedByReader: true,
+        finishRunKey: runKey, abortReason: { reason: 'user_aborted' },
+      }));
+    } else if (pending.cleared) {
+      // A concurrent ordinary Clear is still authoritative if this Stop
+      // did not receive a matching success for the run.
+      clearLocalRun();
+      onRunClearedRef.current?.(runKey);
+    }
+    return result;
+  }, [clearLocalRun, replaySessionId]);
 
   /**
    * Show the run that opens with this key as this page's own, whichever
@@ -447,11 +520,15 @@ export function useSSE(options: UseSSEOptions = {}) {
     // after a run with fallbacks preserves the topbar indicator.
     const restoredFallbacks = rollupValidationFallbacks(events);
     shownFromFileRef.current = true;
+    pendingStopRef.current = null;
+    retainedStopRef.current = null;
     ownRunKeyRef.current = null;
     setState(prev => ({
       status: 'connected',
       events,
       provenance: RunProvenanceSchema.safeParse(provenance ?? events.find(event => event.provenance)?.provenance).data ?? null,
+      runFacts: null,
+      stoppedByReader: false,
       results: (results || []) as SSEState['results'],
       verdict: verdict || null,
       verdictRunKey: null,
@@ -521,6 +598,8 @@ function addValidationFallback(prev: readonly ValidationFallbackBucket[], d: Rec
     let bound: { runKey: string; provenance: RunProvenance } | null = null;
     if (replaySessionId && connectedSourceRef.current !== replaySessionId) {
       connectedSourceRef.current = replaySessionId;
+      pendingStopRef.current = null;
+      retainedStopRef.current = null;
       runKeyRef.current = null;
       shownFromFileRef.current = false;
       // A saved replay sends no `connected`, so its events are told apart
@@ -544,6 +623,7 @@ function addValidationFallback(prev: readonly ValidationFallbackBucket[], d: Rec
     // asked for, and never on the run the page started itself.
     const skipped = () => {
       if (replaySessionId) return false;
+      if (retainedStopRef.current !== null || pendingStopRef.current?.cleared) return true;
       if (ownRunKeyRef.current !== null && runKeyRef.current === ownRunKeyRef.current) return false;
       if (skipBufferedRunRef.current === true) return true;
       const runScenarioId = runScenarioIdRef.current;
@@ -636,13 +716,17 @@ function addValidationFallback(prev: readonly ValidationFallbackBucket[], d: Rec
           connectedSourceRef.current = replaySessionId;
           seenEventKeys.clear();
           shownFromFileRef.current = false;
-          if (newSource) runKeyRef.current = null;
+          if (newSource) {
+            runKeyRef.current = null;
+            pendingStopRef.current = null;
+            retainedStopRef.current = null;
+          }
           setState(prev => ({
             ...prev,
             status: 'connected',
             events: [],
             replayDone: false,
-            ...(newSource ? { runKey: null, provenance: null, simSaved: null, loadedRuns: prev.loadedRuns + 1 } : {}),
+            ...(newSource ? { runKey: null, provenance: null, runFacts: null, stoppedByReader: false, simSaved: null, loadedRuns: prev.loadedRuns + 1 } : {}),
           }));
         } else {
           setState(prev => ({ ...prev, status: 'connected', replayDone: false }));
@@ -676,7 +760,12 @@ function addValidationFallback(prev: readonly ValidationFallbackBucket[], d: Rec
         } catch { /* no key: not this page's run */ }
         if (runKey === null || runKey !== runKeyRef.current) return;
         // A run loaded from a file is not the feed's: it stays.
-        if (shownFromFileRef.current) return;
+        if (shownFromFileRef.current || runKey === retainedStopRef.current) return;
+        const pending = pendingStopRef.current;
+        if (pending?.key === runKey) {
+          pending.cleared = true;
+          return;
+        }
         clearLocalRun();
         onRunClearedRef.current?.(runKey);
       });
@@ -692,13 +781,21 @@ function addValidationFallback(prev: readonly ValidationFallbackBucket[], d: Rec
         let runKey: string | null = null;
         let fork = false;
         let provenance: RunProvenance | undefined;
+        let runFacts: RunFacts | null = null;
         try {
-          const data = JSON.parse(e.data) as { id?: unknown; runKey?: unknown; forkedFrom?: unknown; provenance?: unknown } | null;
+          const data = JSON.parse(e.data) as Record<string, unknown> | null;
+          runFacts = readRunFacts(data);
           provenance = RunProvenanceSchema.safeParse(data?.provenance).data;
           id = typeof data?.id === 'string' ? data.id : null;
           runKey = typeof data?.runKey === 'string' ? data.runKey : null;
           fork = data?.forkedFrom != null;
         } catch { /* no id: the run is shown, as one from before runs named it */ }
+        if (retainedStopRef.current && runKey === retainedStopRef.current) return;
+        if (pendingStopRef.current?.cleared && runKey === pendingStopRef.current.key) return;
+        if (runKey !== null && runKey !== runKeyRef.current) {
+          pendingStopRef.current = null;
+          retainedStopRef.current = null;
+        }
         const previousRunKey = runKeyRef.current;
         const newRun = runKey !== null && runKey !== previousRunKey;
         const isOwnRun = runKey !== null && runKey === ownRunKeyRef.current;
@@ -753,6 +850,7 @@ function addValidationFallback(prev: readonly ValidationFallbackBucket[], d: Rec
           const mark = provenance ?? (bound?.runKey === runKey ? bound?.provenance : undefined);
           setState(prev => ({
             ...prev, runKey,
+            runFacts: prev.runKey === runKey && prev.runFacts ? prev.runFacts : runFacts,
             provenance: mark ?? (prev.runKey === runKey || replaySessionId ? prev.provenance : null),
           }));
         }
@@ -1037,5 +1135,5 @@ function addValidationFallback(prev: readonly ValidationFallbackBucket[], d: Rec
   const ownRun: OwnRun | null = state.heldOwnRun
     ?? (ownRunElsewhere ? { events: state.events, isComplete: state.isComplete, validationFallbacks: state.validationFallbacks } : null);
   const shown = ownRunElsewhere ? { ...state, ...NO_RUN, providerError: state.providerError } : state;
-  return { ...shown, ownRun, reset, loadEvents, followRun, leaveOwnRun };
+  return { ...shown, ownRun, reset, stopRun, loadEvents, followRun, leaveOwnRun };
 }

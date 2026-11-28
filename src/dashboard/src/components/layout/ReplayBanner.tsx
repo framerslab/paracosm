@@ -14,11 +14,13 @@ import * as React from 'react';
 import { useEffect, useState } from 'react';
 import type { StoredSessionMeta } from '../../hooks/useSessions';
 import styles from './ReplayBanner.module.scss';
+import watchStyles from '../sim/SimView.module.scss';
 
 void React; // dashboard SSR tests run without the automatic JSX runtime
 
 interface ReplayBannerProps {
   replaySessionId: string;
+  watch?: boolean;
 }
 
 function formatTimestamp(ts: number): string {
@@ -63,7 +65,7 @@ export function formatRoster(
  *  banner can name which run is replaying instead of just saying
  *  "REPLAYING SAVED DEMO" — viewers were ending up on a replay with
  *  no idea which scenario / leaders / date they were watching. */
-export function ReplayBanner({ replaySessionId }: ReplayBannerProps) {
+export function ReplayBanner({ replaySessionId, watch = false }: ReplayBannerProps) {
   const [meta, setMeta] = useState<StoredSessionMeta | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -80,6 +82,30 @@ export function ReplayBanner({ replaySessionId }: ReplayBannerProps) {
     return () => { cancelled = true; };
   }, [replaySessionId]);
 
+  const leaveReplay = () => {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('replay');
+    url.searchParams.delete('watchTurn');
+    window.history.pushState({}, '', url.toString());
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  };
+  if (watch) {
+    const roster = meta?.leaderA && meta.leaderB
+      ? `${meta.leaderA} and ${meta.leaderB}` : formatRoster(meta);
+    const label = roster && meta?.scenarioName
+      ? `${roster} on ${meta.scenarioName}` : meta?.title ?? meta?.scenarioName ?? roster;
+    return (
+      <section className={watchStyles.runHead} aria-label="Run">
+        <div className={watchStyles.savedRun}>
+          <p role="status" aria-atomic="true">
+            Watching a saved run{label ? `: ${label}` : ''}{meta?.createdAt ? `, saved ${formatTimestamp(meta.createdAt)}` : ''}. No model is called.
+          </p>
+          <button type="button" className={watchStyles.runKey} onClick={leaveReplay}>Leave the replay</button>
+        </div>
+      </section>
+    );
+  }
+
   const headline = meta?.title || meta?.scenarioName || 'saved run';
   const subline: string[] = [];
   if (meta) {
@@ -90,7 +116,6 @@ export function ReplayBanner({ replaySessionId }: ReplayBannerProps) {
     const rosterLabel = formatRoster(meta);
     if (rosterLabel) subline.push(rosterLabel);
     if (typeof meta.turnCount === 'number' && meta.turnCount > 0) subline.push(`${meta.turnCount} turns`);
-    if (typeof meta.totalCostUSD === 'number' && meta.totalCostUSD > 0) subline.push(`$${meta.totalCostUSD.toFixed(2)}`);
     if (typeof meta.eventCount === 'number' && meta.eventCount > 0) subline.push(`${meta.eventCount} events`);
     if (meta.createdAt) subline.push(formatTimestamp(meta.createdAt));
   }
@@ -119,16 +144,7 @@ export function ReplayBanner({ replaySessionId }: ReplayBannerProps) {
       </span>
       <button
         type="button"
-        onClick={() => {
-          // Drop the ?replay= query, return to live mode. Preserves
-          // the rest of the URL (tab, etc) so users return to where
-          // they were; the popstate handler in useReplaySessionId
-          // re-reads the param and useSSE re-subscribes to /events.
-          const url = new URL(window.location.href);
-          url.searchParams.delete('replay');
-          window.history.pushState({}, '', url.toString());
-          window.dispatchEvent(new PopStateEvent('popstate'));
-        }}
+        onClick={leaveReplay}
         className={styles.exitButton}
       >
         EXIT REPLAY

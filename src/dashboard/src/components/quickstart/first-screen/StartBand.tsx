@@ -341,7 +341,7 @@ function StartNotice({ who, launch, facts, keyProvider }: {
       </div>
     );
   }
-  const estimate = launch.size > 2
+  const estimate = launch.size > 2 || who === 'own'
     ? estimateLine({
       who,
       usd: estimateQuickstartCostUSD(launch.size).toFixed(2),

@@ -19,24 +19,27 @@ import styles from './EmptyTab.module.scss';
  * title, a line on how a run gets there, Go to Run, and Watch your last run
  * again when the server still holds this visitor's last run.
  */
-export function EmptyTab({ kind }: { kind: 'watch' | 'reports' }) {
+export function EmptyTab({ kind, missingReplay = false }: { kind: 'watch' | 'reports'; missingReplay?: boolean }) {
   const navigate = useDashboardNavigation();
   const { sessions } = useServerFacts();
   const choice = atLimitChoice(sessions.rows);
   const base = typeof window === 'undefined' ? '' : window.location.href;
   const replay = choice.kind === 'own' && base ? buildReplayHref(base, choice.row.id) : undefined;
   const watch = kind === 'watch';
+  const clean = base && missingReplay ? new URL(base) : null;
+  clean?.searchParams.delete('replay');
+  const runHref = base ? createDashboardTabHref(clean?.href ?? base, 'quickstart') : '/sim?tab=quickstart';
 
   return (
     <div className={styles.empty}>
       <div className={styles.copy}>
-        <h2 data-text="heading">{watch ? EMPTY_WATCH_TITLE : EMPTY_REPORTS_TITLE}</h2>
+        <h2 data-text="heading">{missingReplay ? 'This saved run could not be found.' : watch ? EMPTY_WATCH_TITLE : EMPTY_REPORTS_TITLE}</h2>
         <p data-text="body">{watch ? EMPTY_WATCH_BODY : EMPTY_REPORTS_BODY}</p>
         <div className={styles.links}>
           <a
-            href={base ? createDashboardTabHref(base, 'quickstart') : '/sim?tab=quickstart'}
+            href={runHref}
             onClick={event => {
-              if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+              if (missingReplay || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
               event.preventDefault();
               navigate('quickstart');
             }}

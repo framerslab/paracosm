@@ -54,6 +54,10 @@ import { lazyTab } from './components/layout/lazyTab';
 import { ProviderErrorBanner } from './components/layout/ProviderErrorBanner';
 // Toolbar merged into TopBar
 import { SimView } from './components/sim/SimView';
+import { PairRunHead, type RunHeadAction } from './components/sim/PairRunHead';
+import { EmptyTab } from './components/layout/EmptyTab';
+import { useOnline } from './components/quickstart/first-screen/useOnline';
+import { useMediaQuery } from './components/viz/grid/useMediaQuery';
 import type { RunArtifact } from '../../engine/schema/index.js';
 import { ChatPanel } from './components/chat/ChatPanel';
 import type { SettingsPanelProps } from './components/settings/SettingsPanel';
@@ -1050,7 +1054,7 @@ function AppContent() {
   // artifact marked as the server marks its stream: aborted.
   const stoppedArtifact = interventionArtifact as (RunArtifact & { aborted?: unknown; providerError?: unknown }) | null;
   const twinStopped = stoppedArtifact !== null && (stoppedArtifact.aborted === true || !!stoppedArtifact.providerError);
-  const runExists = sse.events.length > 0 || sse.isComplete || launching || showsDigitalTwin;
+  const runExists = (sse.runFacts?.leaders === 2 && sse.runKey !== null) || sse.events.length > 0 || sse.isComplete || launching || showsDigitalTwin;
   const canRecoverVisitorKey = activeTab === 'sim'
     && replaySessionId === null
     && launchedRun?.usedVisitorKey === true
@@ -1080,7 +1084,111 @@ function AppContent() {
     Boolean(ownVerdict?.winner || ownVerdict?.skipped ||
       replaySessionId || sse.loadedRuns && !sse.runKey && sse.replayDone);
   const playhead = useRunPlayhead(pairIdentity, pairTurns, pairEndReady);
-  const showStatusCost = activeTab !== 'sim' || !pairWatch || (launchedRun?.runKey === sse.runKey && launchedRun?.usedVisitorKey === true);
+  const showRunHead = activeTab === 'sim' && !showsDigitalTwin && replaySessionId === null &&
+    (pairWatch || sse.runFacts?.leaders === 2) && runExists;
+  const showPairUsage = sse.runFacts?.payer === 'own';
+  const showStatusCost = showsDigitalTwin || showPairUsage;
+  const phoneHead = useMediaQuery('(width < 600px)');
+  const online = useOnline();
+  const offline = !online || sse.status === 'error';
+  const [recovered, setRecovered] = useState(false);
+  const wasOffline = useRef(false);
+  useEffect(() => {
+    if (!showRunHead) {
+      wasOffline.current = false;
+      setRecovered(false);
+      return;
+    }
+    if (offline) {
+      wasOffline.current = true;
+      setRecovered(false);
+    } else if (wasOffline.current && sse.status === 'connected') {
+      wasOffline.current = false;
+      setRecovered(true);
+    }
+  }, [offline, showRunHead, sse.status]);
+
+  const [runHeadPanel, setRunHeadPanel] = useState<{ identity: string; action: RunHeadAction } | null>(null);
+  const [stopFeedback, setStopFeedback] = useState<{ identity: string; text: string } | null>(null);
+  const stoppingKey = useRef<string | null>(null);
+  const [stopping, setStopping] = useState<string | null>(null);
+  const action = runHeadPanel?.identity === shownRun ? runHeadPanel.action : null;
+  const stopMessage = stopFeedback?.identity === shownRun ? stopFeedback.text : null;
+  const turns = sse.runFacts?.turns ?? gameState.maxTurns;
+  const newest = playhead.newest;
+  const lastTurn = newest ?? Math.max(gameState.turn, 1);
+  const canStop = showRunHead && sse.runKey !== null && !sse.isComplete && !sse.isAborted;
+  const openRunHeadPanel = (nextAction: RunHeadAction) => {
+    setRunHeadPanel({ identity: shownRun, action: nextAction });
+  };
+  const askStop = () => {
+    sendEvent('watch_stop', { step: 'asked' });
+    setStopFeedback(null);
+    openRunHeadPanel('stop');
+  };
+  const keepWatching = () => {
+    sendEvent('watch_stop', { step: 'kept_watching' });
+    openRunHeadPanel(null);
+  };
+  const confirmStop = async () => {
+    const key = sse.runKey;
+    if (key === null || stoppingKey.current === key) return;
+    stoppingKey.current = key;
+    setStopping(key);
+    sendEvent('watch_stop', { step: 'confirmed' });
+    const result = await sse.stopRun(key);
+    if (stoppingKey.current !== key) return;
+    stoppingKey.current = null;
+    setStopping(null);
+    if (result === 'stale') return;
+    openRunHeadPanel(null);
+    const messages = {
+      ended: 'The run has already ended.',
+      replaced: 'Another run replaced this one.',
+      failed: 'Stop did not reach the server.',
+    };
+    if (result !== 'stopped') setStopFeedback({ identity: shownRun, text: messages[result] });
+    if (result === 'failed') requestAnimationFrame(() => {
+      const retry = document.getElementById(phoneHead && sse.runFacts?.payer !== 'own' ? 'run-actions-key' : 'watch-stop-key');
+      retry?.focus();
+    });
+  };
+  const reason = sse.abortReason?.reason;
+  let runState = 'Starting the run. Turn 1 is on its way.';
+  if (sse.stoppedByReader) runState = `You stopped the run at turn ${lastTurn}.`;
+  else if (sse.isAborted) {
+    const explanation = sse.providerError || reason === 'provider_error' ? 'the model provider returned an error'
+      : reason === 'another_run_started' ? 'you started another run'
+      : reason === 'server_restarted' ? 'the server restarted before the run finished'
+      : reason === 'quota_exhausted' ? 'the provider ran out of credits'
+      : reason === 'client_disconnected' ? 'the browser disconnected before the run finished'
+      : 'the server interrupted it';
+    runState = `The run stopped at turn ${sse.abortReason?.completedTurns ?? lastTurn}: ${explanation}.`;
+  } else if (sse.isComplete) runState = 'The run is over.';
+  else if (offline) runState = 'You are offline. Turns that arrive while you are away show when you are back.';
+  else if (newest !== null) runState = newest >= turns ? 'The verdict is on its way.' : `Turn ${newest + 1} is on its way.`;
+  const watchEntered = useRef<string | null>(null);
+  const watchEndSeen = useRef(new Set<string>());
+  const viewingPair = activeTab === 'sim' && (showRunHead || pairWatch);
+  useEffect(() => {
+    if (!viewingPair) {
+      watchEntered.current = null;
+      return;
+    }
+    const identity = replaySessionId ?? pairIdentity ?? sse.runKey;
+    if (!identity || watchEntered.current === identity) return;
+    watchEntered.current = identity;
+    sendEvent('watch_view', { size: 'pair', state: replaySessionId ? 'saved' : sse.isComplete ? 'ended' : 'running' });
+  }, [viewingPair, replaySessionId, pairIdentity, sse.runKey, sse.isComplete]);
+  useEffect(() => {
+    if (!viewingPair || !pairIdentity || watchEndSeen.current.has(pairIdentity)) return;
+    if (playhead.selected !== 'end' && !sse.stoppedByReader) return;
+    watchEndSeen.current.add(pairIdentity);
+    sendEvent('watch_end_seen', {
+      kind: sse.stoppedByReader ? 'stopped' : ownVerdict?.winner ? 'pair' : 'skipped',
+      reached: sse.stoppedByReader ? 'key' : playhead.reached,
+    });
+  }, [viewingPair, pairIdentity, playhead.selected, playhead.reached, ownVerdict, sse.stoppedByReader]);
   const wipeServer = adminTokenSaved && serverAdminWrite === true ? handleWipeServer : undefined;
 
   return (
@@ -1103,10 +1211,10 @@ function AppContent() {
               onDismiss={() => setBannerDismissed(true)}
             />
           ) : null}
-          {replaySessionId && sse.status === 'replay_not_found' ? (
+          {activeTab !== 'sim' && replaySessionId && sse.status === 'replay_not_found' ? (
             <ReplayNotFoundBanner replaySessionId={replaySessionId} />
           ) : null}
-          {replaySessionId && sse.status !== 'replay_not_found' ? (
+          {activeTab !== 'sim' && replaySessionId && sse.status !== 'replay_not_found' ? (
             <ReplayBanner replaySessionId={replaySessionId} />
           ) : null}
           <TopBar
@@ -1118,6 +1226,8 @@ function AppContent() {
             onClear={handleClear}
             onWipeServer={wipeServer}
             onRunActionsOpen={handleRunActionsOpen}
+            onWatchStop={canStop && action !== 'stop' && phoneHead && sse.runFacts?.payer !== 'own' ? askStop : undefined}
+            onRunDetails={showRunHead && sse.runKey ? () => openRunHeadPanel('details') : undefined}
             onHowItWorks={toggleHowItWorks}
             howItWorksOpen={howItWorksOpen}
             howItWorksKeyRef={howItWorksKeyRef}
@@ -1213,7 +1323,19 @@ function AppContent() {
                   tabIndex={-1}
                   className={styles.tabPanel}
                 >
-                  <SimView
+                  {replaySessionId && sse.status !== 'replay_not_found' &&
+                    <ReplayBanner watch replaySessionId={replaySessionId} />}
+                  {showRunHead &&
+                    <PairRunHead facts={sse.runFacts} scenario={scenario.labels.name} turns={turns}
+                      status={runState} warning={offline || (sse.isAborted && !sse.stoppedByReader)}
+                      recoveryHref={sse.isAborted && !sse.stoppedByReader ? '/sim?tab=quickstart' : undefined}
+                      recovered={recovered} models={sse.provenance?.models} toolCount={toolRegistry.counts.tools}
+                      spend={gameState.cost?.totalCostUSD ?? 0} canStop={canStop} action={action}
+                      stopping={stopping !== null && stopping === sse.runKey}
+                      stopMessage={stopMessage}
+                      onAskStop={askStop} onKeepWatching={keepWatching} onConfirmStop={confirmStop}
+                      onCloseDetails={() => openRunHeadPanel(null)} />}
+                  {sse.status === 'replay_not_found' ? <EmptyTab kind="watch" missingReplay /> : <SimView
                     state={gameState}
                     sseStatus={sse.status}
                     openReportTurn={openReportTurn}
@@ -1227,7 +1349,8 @@ function AppContent() {
                     interventionRunning={interventionRunning}
                     interventionState={interventionState}
                     onInterventionDismiss={handleInterventionDismiss}
-                  />
+                    watchRun={showRunHead}
+                  />}
                 </section>
               )}
 
@@ -1281,7 +1404,9 @@ function AppContent() {
                   tabIndex={-1}
                   className={styles.tabPanel}
                 >
-                  <ReportView state={gameState} verdict={sse.verdict} shownRun={shownRun} reportSections={scenario.ui.reportSections} />
+                  <ReportView state={showPairUsage ? gameState : {
+                    ...gameState, cost: { totalTokens: 0, totalCostUSD: 0, llmCalls: 0 }, costByActor: {},
+                  }} verdict={sse.verdict} shownRun={shownRun} reportSections={scenario.ui.reportSections} />
                 </section>
               )}
 
