@@ -21,5 +21,5 @@ test('a saved run picked in Library opens its replay', async ({ page, request })
 
   await page.waitForURL(url => url.searchParams.get('replay') === id);
   expect(new URL(page.url()).searchParams.get('tab')).toBe('sim');
-  await expect(page.getByRole('status').filter({ hasText: /^REPLAYING/i })).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: /^Watching a saved run/i })).toBeVisible();
 });

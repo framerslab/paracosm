@@ -224,7 +224,7 @@ async function openShareNote(page: Page) {
   const { sessions } = await response.json() as { sessions: { id: string }[] };
   expect(sessions).toHaveLength(1);
   await page.goto(`${REPLAY_SERVER}/sim?replay=${encodeURIComponent(sessions[0].id)}&tab=sim`);
-  await expect(page.getByRole('status').filter({ hasText: /^REPLAYING/i })).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: /^Watching a saved run/i })).toBeVisible();
   await page.getByRole('button', { name: 'Open run actions menu' }).click();
   await page.getByRole('menuitem', { name: /Share viz link/ }).click();
 }

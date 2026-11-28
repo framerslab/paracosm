@@ -596,7 +596,7 @@ test.describe('the other copy keys and the Library\'s address', () => {
   test('a Library search on a replay keeps the replay in the address, and a refresh reopens the replay with the search', async ({ page, request }) => {
     const id = await storedSessionId(request);
     await page.goto(`/sim?replay=${encodeURIComponent(id)}&tab=library`);
-    await expect(page.getByRole('status').filter({ hasText: /^Watching a saved run/i })).toBeVisible();
+    await expect(page.getByRole('status').filter({ hasText: /^REPLAYING/i })).toBeVisible();
     await expect(runCard(page)).toBeVisible();
 
     await page.getByRole('textbox', { name: 'Search runs' }).fill('mars');
@@ -606,7 +606,7 @@ test.describe('the other copy keys and the Library\'s address', () => {
     expect(params.get('tab')).toBe('library');
 
     await page.reload();
-    await expect(page.getByRole('status').filter({ hasText: /^Watching a saved run/i })).toBeVisible();
+    await expect(page.getByRole('status').filter({ hasText: /^REPLAYING/i })).toBeVisible();
     await expect(page.getByRole('textbox', { name: 'Search runs' })).toHaveValue('mars');
     await expect(runCard(page)).toBeVisible();
   });
@@ -766,7 +766,7 @@ test.describe('the run actions menu', () => {
     try {
       const visitor = await other.newPage();
       await visitor.goto(shareUrl(id));
-      await expect(visitor.getByRole('status').filter({ hasText: /^Watching a saved run/i })).toBeVisible();
+      await expect(visitor.getByRole('status').filter({ hasText: /^REPLAYING/i })).toBeVisible();
       // The banner shows before the stream answers; the turn counter reaches
       // the run's last turn only when the run's events have arrived.
       await expect(visitor.getByRole('progressbar', { name: 'Simulation progress, turn 2 of 2' })).toBeVisible({ timeout: 30_000 });
