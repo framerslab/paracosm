@@ -70,6 +70,29 @@ function savedRun(scenarioId: string, name: string, leader: string, turns = [1, 
   };
 }
 
+/**
+ * Opens Reports on a saved Mars Genesis run of the scenario's own turns,
+ * with a real kernel snapshot at the end of each turn, so every turn but the
+ * last offers a fork.
+ */
+async function openForkableMarsRun(page: Page, baseURL: string | undefined): Promise<void> {
+  const { id, labels, setup } = marsScenario;
+  const leader = 'Aria Chen';
+  const turns = Array.from({ length: setup.defaultTurns }, (_, index) => index + 1);
+  const run = savedRun(id, labels.name, leader, turns);
+  const kernel = new SimulationKernel(11, leader, [], { startTime: setup.defaultStartTime, scenario: marsScenario });
+  run.results[0].artifact.scenarioExtensions.kernelSnapshotsPerTurn = turns.map(turn => {
+    kernel.advanceTurn(turn, setup.defaultStartTime + turn, marsScenario.hooks?.progressionHook);
+    return kernel.toSnapshot(id);
+  });
+  const fileUrl = `${baseURL}/saved-runs/${id}.json`;
+  await page.route(fileUrl, async route => {
+    await waitForRunConnection(page);
+    await route.fulfill({ json: run });
+  });
+  await page.goto(`/sim?load=${encodeURIComponent(fileUrl)}&autoload=1&tab=reports`);
+}
+
 test.describe('Scenario per visitor @scenario', () => {
   test("another visitor's switch leaves this page on its own scenario", async ({ browser }) => {
     const contextA = await browser.newContext();
@@ -355,21 +378,7 @@ test.describe('Scenario per visitor @scenario', () => {
   });
 
   test('custom events must name a year the fork will play', async ({ page, baseURL }) => {
-    const { id, labels, setup } = marsScenario;
-    const leader = 'Aria Chen';
-    const turns = Array.from({ length: setup.defaultTurns }, (_, index) => index + 1);
-    const run = savedRun(id, labels.name, leader, turns);
-    const kernel = new SimulationKernel(11, leader, [], { startTime: setup.defaultStartTime, scenario: marsScenario });
-    run.results[0].artifact.scenarioExtensions.kernelSnapshotsPerTurn = turns.map(turn => {
-      kernel.advanceTurn(turn, setup.defaultStartTime + turn, marsScenario.hooks?.progressionHook);
-      return kernel.toSnapshot(id);
-    });
-    const fileUrl = `${baseURL}/saved-runs/${id}.json`;
-    await page.route(fileUrl, async route => {
-      await waitForRunConnection(page);
-      await route.fulfill({ json: run });
-    });
-    await page.goto(`/sim?load=${encodeURIComponent(fileUrl)}&autoload=1&tab=reports`);
+    await openForkableMarsRun(page, baseURL);
     await page.getByRole('button', { name: 'Fork at Year 3' }).click();
 
     const dialog = page.getByRole('dialog', { name: 'Fork at Year 3' });
@@ -404,6 +413,48 @@ test.describe('Scenario per visitor @scenario', () => {
     await events.fill(`4: ${supplyDrop}`);
     await expect(status).toHaveCount(0);
     await expect(fork).toBeEnabled();
+  });
+
+  test('on the hosted demo, custom events must fit the turns and the one event a turn the host pays for', async ({ page, baseURL }) => {
+    // Reports posts a fork with no provider key, so on the hosted demo the
+    // host pays: /setup ends the fork at the demo's turn cap and keeps the
+    // first custom event of each turn. This server reports a cap one turn
+    // under Mars Genesis's own turns.
+    const cap = marsScenario.setup.defaultTurns - 1;
+    await page.route('**/admin-config', async route => {
+      const response = await route.fetch();
+      const body = await response.json() as { demoCaps?: Record<string, unknown> };
+      await route.fulfill({ response, json: { ...body, hostedDemo: true, demoCaps: { ...body.demoCaps, maxTurns: cap } } });
+    });
+    await openForkableMarsRun(page, baseURL);
+    await page.getByRole('button', { name: 'Fork at Year 3' }).click();
+
+    const dialog = page.getByRole('dialog', { name: 'Fork at Year 3' });
+    await dialog.getByText('Advanced: custom events', { exact: true }).click();
+    const events = dialog.getByRole('textbox');
+    const fork = dialog.getByRole('button', { name: 'Fork', exact: true });
+    const lead = 'Fork is disabled until you fix or remove these lines.';
+
+    await events.fill('4: Supply drop: Relief arrives.\n4: Dust storm: Solar output drops.');
+    const second = 'Line 2 is a second event for Year 4. This fork keeps only the first, line 1.';
+    await expect(dialog.getByRole('status').filter({ hasText: second })).toBeVisible();
+    await expect(events).toHaveAccessibleDescription(`${lead} ${second}`);
+    await expect(fork).toBeDisabled();
+
+    await events.fill(`${cap + 1}: Arrival: The next crew lands.`);
+    const late = `Line 1 is for Year ${cap + 1}. This fork ends at Year ${cap}.`;
+    await expect(dialog.getByRole('status').filter({ hasText: late })).toBeVisible();
+    await expect(fork).toBeDisabled();
+
+    await events.fill(`4: Supply drop: Relief arrives.\n${cap}: Arrival: The next crew lands.`);
+    await expect(dialog.getByRole('status').filter({ hasText: lead })).toHaveCount(0);
+    await expect(fork).toBeEnabled();
+
+    // No fork at the cap's last turn, where the host's run has nothing left to play.
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByRole('button', { name: `Fork at Year ${cap - 1}` }).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: `Fork at Year ${cap}` })).toHaveCount(0);
   });
 
   test('a run loaded from a file before the page knows its scenario stays once it does', async ({ page, baseURL }) => {
