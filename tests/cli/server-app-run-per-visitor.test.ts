@@ -385,12 +385,15 @@ test('named Stop retains a finished run and leaves ordinary Clear available', as
   const held = heldRun();
   await withVisitors(async ({ cookied }) => {
     const visitor = cookied();
-    const first = await setup(visitor, settingsBody(mars));
     const stream = await openStream(visitor);
     const stop = async (runKey: unknown) => (await visitor.post('/clear', { runKey, stop: true })).json();
     try {
+      const first = await setup(visitor, settingsBody(mars));
+      assert.equal(first.status, 200);
       const opening = await stream.next(frame => frame.event === 'active_scenario', 'opening run');
+      assert.equal(opening.data.runKey, first.answer.runKey);
       assert.equal(opening.data.payer, 'server');
+      assert.equal(openings(await readReplay(visitor))[0]?.data.payer, 'server');
       const started = await waitFor(() => held.runs[0], 'first runner');
       started.release();
       await stream.next(frame => frame.event === 'complete', 'completed run');
