@@ -109,12 +109,12 @@ function wordsOf(markup: string): string {
   return words;
 }
 
-test('wherever the landing page links the API reference it also links the HTTP API reference and the Cookbook', () => {
+test('the footer and the get-started section link the API reference, the HTTP API reference and the Cookbook; the header’s one Docs link opens the API reference', () => {
   const httpApi = 'href="https://github.com/framerslab/paracosm/blob/master/docs/HTTP_API.md"';
   const cookbook = 'href="https://github.com/framerslab/paracosm/blob/master/docs/COOKBOOK.md"';
+  // The header is one row with no menu, so its Docs link names the API reference alone.
+  assert.match(between('<nav class="lp-nav"', '</nav>'), /<a href="\/docs" class="lp-wide">Docs<\/a>/);
   const places: Record<string, string> = {
-    'the Docs menu': between('type="button">Docs <svg', '</div>'),
-    'the mobile Docs menu': between('<summary><span>Docs</span></summary>', '</details>'),
     'the footer': between('<nav class="ft-links"', '</nav>'),
     'the get-started section': section('get-started'),
   };
